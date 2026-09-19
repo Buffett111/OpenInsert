@@ -1,0 +1,21 @@
+name: Build and test
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: swift test
+      - name: Build universal application
+        run: ARCH=universal ./scripts/build-app.sh
+      - name: Preserve bundle permissions in archive
+        run: ditto -c -k --sequesterRsrc --keepParent dist/OpenInsert.app dist/OpenInsert-universal.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenInsert-universal
+          path: dist/OpenInsert-universal.zip

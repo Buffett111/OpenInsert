@@ -1,0 +1,17 @@
+OpenInsert 0.1.0 — macOS 13 or later
+
+1. Drag OpenInsert.app to Applications.
+2. Open it and configure your own Gemini API key in Connection & Permissions.
+3. Enable microphone and Accessibility permission for OpenInsert.
+4. Agree to sending your actively recorded audio and vocabulary directly to Google.
+5. Quit other apps that use Option + Space. Focus a text field.
+6. Hold Option + Space, speak, and release. Or tap once to start and again to stop.
+
+This community build is ad-hoc signed, not Apple Developer ID signed or notarized.
+macOS may block a downloaded build. Inspect the source or build locally if needed.
+Do not disable Gatekeeper. See Apple's official instructions if you choose to open it:
+https://support.apple.com/en-us/102445
+
+Automatic insertion does not work in every app. It never presses Return.
+Results remain available for manual copy if the destination changes or refuses input.
+Gemini usage, pricing, and data processing follow your Google account's terms.
