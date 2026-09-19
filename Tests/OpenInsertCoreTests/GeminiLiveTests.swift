@@ -38,11 +38,12 @@ final class GeminiLiveTests: XCTestCase {
     }
 
     func testInvalidConfigurationRejectedBeforeTransportConnects() async {
-        for invalidKey in ["", "short", "valid-length-key\r\nInjected: yes"] {
+        for (invalidKey, issue) in [("", GeminiAPIKeyValidationError.missing),
+                                    ("valid-length-key\r\nInjected: yes", .containsWhitespace)] {
             let socket = FakeLiveTransport()
             let client = GeminiLiveTranscriber(apiKey: invalidKey, transport: socket, timing: timing)
             do { try await client.start(); XCTFail("Expected key validation") }
-            catch { XCTAssertEqual(error as? GeminiLiveError, .invalidConfiguration) }
+            catch { XCTAssertEqual(error as? GeminiLiveError, .invalidAPIKey(issue)) }
             XCTAssertNil(socket.request)
         }
         XCTAssertThrowsError(try GeminiLiveProtocol.setup(model: "gemini-evil/../../other", languageCodes: [], vocabulary: []))

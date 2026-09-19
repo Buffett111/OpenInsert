@@ -79,10 +79,7 @@ public struct GeminiClient {
     }
 
     static func makeRequest(audio: Data, mimeType: String, apiKey: String, options: DictationOptions) throws -> URLRequest {
-        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard key.range(of: "\\A[A-Za-z0-9_-]{20,256}\\z", options: .regularExpression) != nil else {
-            throw GeminiError.invalidAPIKey
-        }
+        let key = try GeminiAPIKey.validate(apiKey)
         guard options.model.range(of: "\\Agemini-[A-Za-z0-9][A-Za-z0-9.-]{0,99}\\z", options: .regularExpression) != nil else {
             throw GeminiError.invalidModel
         }
@@ -154,8 +151,7 @@ public struct GeminiClient {
     }
 
     static func makePolishRequest(transcript: String, apiKey: String, options: DictationOptions) throws -> URLRequest {
-        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard key.range(of: "\\A[A-Za-z0-9_-]{20,256}\\z", options: .regularExpression) != nil else { throw GeminiError.invalidAPIKey }
+        let key = try GeminiAPIKey.validate(apiKey)
         guard options.model.range(of: "\\Agemini-[A-Za-z0-9][A-Za-z0-9.-]{0,99}\\z", options: .regularExpression) != nil else { throw GeminiError.invalidModel }
         guard options.language.utf8.count <= 1_000, options.vocabulary.utf8.count <= 16_000 else { throw GeminiError.invalidOptions }
         guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw GeminiError.emptyTranscript }

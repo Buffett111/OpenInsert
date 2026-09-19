@@ -1,6 +1,14 @@
-OpenInsert 0.2.1 is an early macOS release of an MIT-licensed, Gemini BYOK dictation app.
+OpenInsert 0.2.2 is an early macOS release of an MIT-licensed, Gemini BYOK dictation app.
 
-0.2.1 hardens timer cancellation: expired setup/write callbacks cannot affect a later phase, and the late-transcript regression uses a controllable clock. All 46 local XCTest cases pass. See `docs/VALIDATION.md` for the earlier intermittent CI failure and negative-control evidence.
+0.2.2 fixes local API key rejection and adds a floating dictation panel:
+
+- Accepts opaque Google key strings, including dotted `AQ.` forms and strings longer than the previous 256-character limit. One shared validator checks header safety, not server validity. It retains an app-defined 8 KiB limit and rejects internal whitespace, control characters, and non-ASCII paste artifacts.
+- Checks the saved key and ASR settings before opening the microphone and reports specific local errors. This fixes a verifiable rejection path; it does not establish why an individual user's request failed, and no actual user key was inspected to diagnose it. See [Google's authorization key guidance](https://ai.google.dev/gemini-api/docs/api-key).
+- Adds **檢查 Gemini 連線（不錄音）**: after a Keychain key and Google consent are present, open a short Live session with the selected ASR model, fixed settings, and empty vocabulary. No microphone or audio is involved. Success verifies connection/model setup only; it does not test ASR, cleanup, or insertion.
+- Displays live previews, processing state, and errors in a nonactivating, click-through floating panel while the destination app keeps focus. The preview button uses synthetic text and performs no recording, network request, or insertion.
+- Calculates hold-versus-tap duration from original Carbon keyboard event timestamps and uses exclusive hotkey registration to report conflicts. Hold for at least 0.35 seconds and release to finish; short-tap to start, then tap again to stop.
+
+The 0.2.1 timer-cancellation protections and controllable-clock regressions remain. Current test and UI results are recorded in `docs/VALIDATION.md`; local tests and synthetic previews do not establish successful real Gemini ASR, microphone recording, or destination insertion.
 
 - Option + Space: hold to dictate or tap to toggle.
 - Live ASR with `gemini-3.5-transcribe-live`, matching the model setting observed in Dup 1.20260913.0. See `docs/DUP_MODELS.md` for evidence and limits.

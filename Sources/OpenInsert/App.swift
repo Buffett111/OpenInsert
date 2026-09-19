@@ -11,18 +11,22 @@ import Combine
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
     private var controller: DictationController!
+    private var dictationHUD: DictationHUD?
     private var subscriptions = Set<AnyCancellable>()
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         let settings = SettingsStore()
         controller = DictationController(settings: settings)
+        let hud = DictationHUD(controller: controller)
+        dictationHUD = hud
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 720),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "OpenInsert"
         window.minSize = NSSize(width: 700, height: 660)
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.contentView = NSHostingView(rootView: MainView(controller: controller, settings: settings))
+        window.contentView = NSHostingView(rootView: MainView(controller: controller, settings: settings,
+            onPreviewHUD: { [weak hud] in hud?.showPreview() }))
         window.center()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
@@ -64,5 +68,8 @@ import Combine
         return .terminateLater
     }
     func applicationDidBecomeActive(_ notification: Notification) { controller?.refreshPermissions() }
-    func applicationWillTerminate(_ notification: Notification) { controller?.shutdown() }
+    func applicationWillTerminate(_ notification: Notification) {
+        dictationHUD?.close()
+        controller?.shutdown()
+    }
 }

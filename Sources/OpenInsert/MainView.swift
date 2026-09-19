@@ -7,6 +7,7 @@ private typealias ViewState<Value> = SwiftUI.State<Value>
 struct MainView: View {
     @ObservedObject var controller: DictationController
     @ObservedObject var settings: SettingsStore
+    var onPreviewHUD: () -> Void = {}
     @ViewState private var tab = 0
     @ViewState private var keyDraft = ""
     private let accent = Color(red: 0.20, green: 0.64, blue: 0.48)
@@ -111,6 +112,9 @@ struct MainView: View {
     }
     private var preferences: some View {
         VStack(alignment: .leading, spacing: 18) {
+            setting("即時字幕", detail: "錄音時會在螢幕下方顯示浮動逐字稿，不會切換 App 或搶走游標。預覽不會錄音或連線。") {
+                Button("預覽浮動字幕") { onPreviewHUD() }
+            }
             setting("全域快捷鍵", detail: "預設 Option + Space。請先結束占用同一快捷鍵的 App；若快捷鍵已被占用會顯示錯誤。") {
                 Picker("快捷鍵", selection: $settings.hotKey) {
                     ForEach(HotKeyChoice.allCases, id: \.self) { Text($0.displayName).tag($0) }
@@ -154,6 +158,8 @@ struct MainView: View {
             }
             Toggle("我同意錄音時即串流音訊與詞彙至 Google，並依模式傳送逐字稿整理", isOn: $settings.cloudConsent)
                 .disabled(controller.busy)
+            Button("檢查 Gemini 連線（不錄音）") { controller.checkConnection() }
+                .disabled(controller.busy || !controller.hasAPIKey || !settings.cloudConsent)
             Text("使用自己的 API key，費用與資料處理規則依你的 Google 帳號方案。OpenInsert 不經過開發者的伺服器。")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()

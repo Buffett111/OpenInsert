@@ -102,6 +102,18 @@ public actor GeminiLiveTranscriber {
         }
     }
 
+    /// Validates locally before the caller opens the microphone. This does not make a
+    /// network request or confirm Google model access, quota, or credential validity.
+    public nonisolated static func validateConfiguration(
+        apiKey: String,
+        model: String = "gemini-3.5-transcribe-live",
+        languageCodes: [String] = [],
+        vocabulary: [String] = []
+    ) throws {
+        _ = try GeminiLiveProtocol.request(apiKey: apiKey)
+        _ = try GeminiLiveProtocol.setup(model: model, languageCodes: languageCodes, vocabulary: vocabulary)
+    }
+
     /// Call sequentially from the microphone stream; sending also permits incoming previews.
     public func sendAudio(_ data: Data) async throws {
         try Task.checkCancellation()
@@ -348,12 +360,17 @@ public actor GeminiLiveTranscriber {
 
 public enum GeminiLiveError: Error, LocalizedError, Equatable {
     case invalidConfiguration, invalidState, invalidAudio, audioTooLong
+    case invalidAPIKey(GeminiAPIKeyValidationError), invalidModel, invalidLanguageCodes, invalidVocabulary
     case setupTimeout, finalizationTimeout, network, serverRejected, invalidResponse
     case oversizedResponse, emptyTranscript, interrupted
 
     public var errorDescription: String? {
         switch self {
         case .invalidConfiguration: return "Check the Gemini API key, Live model, language codes, and vocabulary."
+        case .invalidAPIKey(let issue): return issue.errorDescription
+        case .invalidModel: return "The Live ASR model ID is invalid. Use gemini-3.5-transcribe-live without a URL or models/ prefix."
+        case .invalidLanguageCodes: return "Live language hints must contain at most 16 language codes, such as en-US. Clear invalid language hints."
+        case .invalidVocabulary: return "Custom vocabulary must contain at most 1,000 nonempty terms, each at most 512 UTF-8 bytes and 16,000 bytes total. Shorten the vocabulary in Settings."
         case .invalidState: return "The live dictation session is not ready. Start a new recording."
         case .invalidAudio: return "Live audio must contain mono 16-bit PCM samples at 16 kHz."
         case .audioTooLong: return "Live dictation reached the 120-second audio limit."
@@ -433,10 +450,9 @@ enum GeminiLiveProtocol {
     static let activityEnd = "{\"realtimeInput\":{\"activityEnd\":{}}}"
 
     static func request(apiKey: String) throws -> URLRequest {
-        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard key.range(of: "\\A[A-Za-z0-9_-]{20,256}\\z", options: .regularExpression) != nil else {
-            throw GeminiLiveError.invalidConfiguration
-        }
+        let key: String
+        do { key = try GeminiAPIKey.validate(apiKey) }
+        catch let issue as GeminiAPIKeyValidationError { throw GeminiLiveError.invalidAPIKey(issue) }
         var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
         // Google native Python SDK uses this header for WebSockets. Never put the key in URLs.
         request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
@@ -446,13 +462,18 @@ enum GeminiLiveProtocol {
     }
 
     static func setup(model: String, languageCodes: [String], vocabulary: [String]) throws -> String {
-        guard model.range(of: "\\Agemini-[A-Za-z0-9][A-Za-z0-9.-]{0,99}\\z", options: .regularExpression) != nil,
-              languageCodes.count <= 16,
-              languageCodes.allSatisfy({ $0.range(of: "\\A[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*\\z", options: .regularExpression) != nil && $0.utf8.count <= 64 }),
-              vocabulary.count <= 1_000,
+        let model = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard model.range(of: "\\Agemini-[A-Za-z0-9][A-Za-z0-9.-]{0,99}\\z", options: .regularExpression) != nil else {
+            throw GeminiLiveError.invalidModel
+        }
+        guard languageCodes.count <= 16,
+              languageCodes.allSatisfy({ $0.range(of: "\\A[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*\\z", options: .regularExpression) != nil && $0.utf8.count <= 64 }) else {
+            throw GeminiLiveError.invalidLanguageCodes
+        }
+        guard vocabulary.count <= 1_000,
               vocabulary.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }),
               vocabulary.reduce(0, { $0 + $1.utf8.count }) <= 16_000 else {
-            throw GeminiLiveError.invalidConfiguration
+            throw GeminiLiveError.invalidVocabulary
         }
         return try encode(["setup": [
             "model": "models/" + model,

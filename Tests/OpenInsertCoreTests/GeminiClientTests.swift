@@ -109,9 +109,9 @@ final class GeminiClientTests: XCTestCase {
     }
 
     func testInvalidKeysAndOversizedOptionsRejectedLocally() throws {
-        for value in ["", "short", String(repeating: "a", count: 257), "valid-length-but\r\ninjected-header", "key with enough spaces to be invalid"] {
+        for value in ["", String(repeating: "a", count: GeminiAPIKey.maximumBytes + 1), "valid-length-but\r\ninjected-header", "key with enough spaces to be invalid"] {
             XCTAssertThrowsError(try GeminiClient.makeRequest(audio: audio, mimeType: "audio/wav", apiKey: value, options: DictationOptions())) {
-                XCTAssertEqual($0 as? GeminiError, .invalidAPIKey)
+                XCTAssertTrue($0 is GeminiAPIKeyValidationError)
             }
         }
         XCTAssertThrowsError(try GeminiClient.makeRequest(audio: audio, mimeType: "audio/wav", apiKey: key, options: DictationOptions(vocabulary: String(repeating: "字", count: 6_000)))) {

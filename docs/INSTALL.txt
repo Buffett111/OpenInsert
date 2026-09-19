@@ -1,4 +1,4 @@
-OpenInsert 0.2.1 — macOS 13 or later
+OpenInsert 0.2.2 — macOS 13 or later
 
 1. Drag OpenInsert.app to Applications.
 2. Open it and configure your own Gemini API key in Connection & Permissions.
@@ -7,6 +7,23 @@ OpenInsert 0.2.1 — macOS 13 or later
    Upgrading from 0.1 requires new consent; audio is sent while you speak.
 5. Quit other apps that use Option + Space. Focus a text field.
 6. Hold Option + Space, speak, and release. Or tap once to start and again to stop.
+   A hold of at least 0.35 seconds finishes on release. Shortcut conflicts show an error;
+   quit the other app or select an alternative shortcut in OpenInsert settings.
+7. The floating panel shows live text, status, and errors without taking focus.
+   "預覽浮動字幕" shows a synthetic preview only: no microphone, network, or insertion.
+
+Optional: after saving the Keychain key and enabling Google consent, choose
+"檢查 Gemini 連線（不錄音）". It contacts Google using the selected Live ASR model
+and fixed setup settings, with empty custom vocabulary, then closes the session.
+It never opens the microphone or sends audio. Success confirms this connection
+and model setup only, not transcription, text cleanup, or destination insertion.
+
+Paste the complete Google API key, including punctuation. Version 0.2.2 accepts
+opaque key strings such as dotted AQ. forms and keys longer than the previous
+256-character limit. Local checks run before opening the microphone and report
+missing keys, unsafe paste characters, or oversized input. They check header safety,
+not Google's authorization, billing, or model access. Never share your key in an issue.
+Google's current key guide: https://ai.google.dev/gemini-api/docs/api-key
 
 Default ASR: gemini-3.5-transcribe-live (WebSocket, automatic language detection).
 Default optional cleanup: gemini-3.5-flash-lite (text-only generateContent).

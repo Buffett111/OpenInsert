@@ -1,12 +1,16 @@
 # OpenInsert 架構與取捨
 
-本文描述 0.2.1 原始碼的設計。平台為 macOS 13 以上，Swift Package 使用 Swift tools 5.9；程式本身不依賴第三方 package。編譯、單元測試、UI、真實 API 與跨應用插入屬不同驗證層，實際執行結果以 [VALIDATION.md](VALIDATION.md) 為準。
+本文描述 0.2.2 原始碼的設計。平台為 macOS 13 以上，Swift Package 使用 Swift tools 5.9；程式本身不依賴第三方 package。編譯、單元測試、UI、真實 API 與跨應用插入屬不同驗證層，實際執行結果以 [VALIDATION.md](VALIDATION.md) 為準。
 
 ## 使用流程
 
 使用者先儲存自己的 Gemini API key，明確同意錄音期間將音訊串流至 Google，以及啟用整理時傳送逐字稿，再核准麥克風與所需的輔助使用權限。0.2 使用獨立的 `liveCloudConsent` 設定，0.1 的上傳同意不會自動沿用。將游標放在其他 App 的文字欄位，以預設 **Option + Space** 開始。按住至少約 0.35 秒再放開會結束錄音；短按可開始，再按一次停止。可切換為 Control + Option + Space 或 Control + Shift + Space，避開其他軟體的快捷鍵。
 
 沒有可驗證的目標欄位或沒有 Accessibility 權限時，仍可辨識並保留結果供手動複製；程式不會因此把內容貼到任意前景視窗。麥克風權限、有效金鑰與雲端同意仍為錄音／雲端路徑的必要條件。
+
+0.2.2 在開啟麥克風前，先本機檢查保存的 key 是否能安全傳送，以及 ASR 模型名稱與詞彙設定。缺少 key、夾雜空白／控制字元、超過本機容量上限或不合規設定會回報具體原因；這不是向 Google 查詢憑證有效性，不能預先確認權限、額度或模型可用性。
+
+「檢查 Gemini 連線（不錄音）」是另一個明確啟動的網路診斷：`DictationController.checkConnection` 要求已有 Keychain key、Google consent 且目前沒有其他工作，使用所選 `asrModel` 建立 `GeminiLiveTranscriber`，`languageCodes` 與 `vocabulary` 都沿用空陣列預設。它執行固定 Live setup／啟動控制訊號，等待 `start()` 成功後立即取消連線；不啟動 recorder、不送 PCM、逐字稿或自訂詞彙。成功只支持當時的認證連線與模型 setup 可用，不能外推 ASR、完成判定、Flash Lite 整理或文字插入成功，也不保證後續配額。
 
 ```text
 使用者快捷鍵／錄音按鈕
@@ -48,6 +52,7 @@ GeminiLiveTranscriber → WSS → gemini-3.5-transcribe-live
 | 元件 | 職責 | 不承擔的責任 |
 | --- | --- | --- |
 | `App.swift`、`MainView.swift` | 原生選單列與 SwiftUI 設定／結果介面 | 不自行組合 HTTP request、不擷取其他 App 文字 |
+| 浮動字幕 HUD | 以不啟用 App、不接收滑鼠點擊的面板呈現即時預覽、處理狀態及錯誤 | 不搶輸入焦點、不擷取背後畫面、不把預覽送進目標 |
 | `DictationController` | 管理狀態、session、取消、錄音至插入的串接 | 不保存逐字稿資料庫 |
 | `StreamingAudioRecorder` | 麥克風授權、音訊重取樣、PCM 分塊、音量與有界 RAM 佇列 | 不錄系統音效、不建立錄音檔案 |
 | `GlobalHotKey` | Carbon `RegisterEventHotKey` 註冊指定快捷鍵與放開事件 | 不安裝監聽全部按鍵的 event tap |
@@ -56,12 +61,15 @@ GeminiLiveTranscriber → WSS → gemini-3.5-transcribe-live
 | `TextInserter` | 目標捕捉、驗證、AX 寫入與剪貼簿交易 | 不從畫面收集上下文，不保證所有程式接受合成貼上 |
 | `SettingsStore` | UserDefaults 中的模型、語言、詞彙、模式、快捷鍵與同意設定 | 不保存 key 或逐字稿 |
 | `KeychainStore` | 儲存／刪除使用者 Gemini key | 不在 release 內提供共用 key |
+| `GeminiAPIKey` | 共用的本機 header 傳輸安全檢查 | 不判斷 key 類型、Google 授權或服務可用性 |
 
 ## 狀態與取消
 
 主要狀態為 `idle → preparing → recording → transcribing → inserting → idle`，另有獨立的 `testing` 插入測試狀態。MainActor 序列化 UI 與系統互動；每次工作有 generation UUID，舊的非同步回覆不能更新新的 session。
 
-設定在錄音起始時擷取，避免處理途中改模型、模式或恢復選項造成同一段錄音前後不一致。按鍵 repeat 由 GlobalHotKey 去重；新 shortcut registration ID 可排除舊註冊遺留事件。若使用者在麥克風授權彈窗期間放開快捷鍵，controller 記錄停止要求，準備完成後結束錄音。
+設定在錄音起始時擷取，避免處理途中改模型、模式或恢復選項造成同一段錄音前後不一致。按鍵 repeat 由 GlobalHotKey 去重；新 shortcut registration ID 可排除舊註冊遺留事件。0.2.2 以 Carbon `GetEventTime` 的原始按下／放開時間判斷 0.35 秒門檻，不以非同步 handler 到達時間計算；短按切換錄音、長按放開結束。註冊使用 `kEventHotKeyExclusive`，若其他 App 已占用而註冊失敗，顯示衝突錯誤並讓使用者改快捷鍵。若在麥克風授權彈窗期間放開，controller 記錄停止要求，準備完成後結束錄音。
+
+HUD 在其他 App 保持焦點時可見，呈現現有 controller 的狀態／未定稿文字／錯誤，不靠切換前景視窗更新。它不成為 key window，也不接收點擊。設定中的「預覽浮動字幕」使用合成文字，不啟動麥克風、網路或文字插入；此預覽只能檢查外觀，不能當作真實 ASR 驗證。
 
 錄音與網路處理可取消。取消停止麥克風、釋放佇列並取消 WebSocket／HTTP；錄音期間已送往 Google 的 bytes 無法收回。停止錄音時，先排空已接受的錄音 buffer 與重取樣尾端，再傳送 `activityEnd`，避免結尾音節被本機提早截斷。插入開始後不提供「撤回貼上」式取消，因為文字可能已由目標接收；剪貼簿 fallback 的 800 ms 恢復等待也不因 task cancellation 提早結束。
 
@@ -77,7 +85,11 @@ GeminiLiveTranscriber → WSS → gemini-3.5-transcribe-live
 
 ## Live ASR contract
 
-ASR 預設 `gemini-3.5-transcribe-live`，對齊本次觀察到的 Dup 設定，證據見 [DUP_MODELS.md](DUP_MODELS.md)。固定連至 `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`。模型與 key 先做格式檢查，API key 只放 `x-goog-api-key` header，不放 URL。redirect 被拒絕，不自動重試可能收費的工作。
+ASR 預設 `gemini-3.5-transcribe-live`，對齊本次觀察到的 Dup 設定，證據見 [DUP_MODELS.md](DUP_MODELS.md)。固定連至 `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`。模型名稱先做格式檢查；key 依下述傳輸安全規則處理，只放 `x-goog-api-key` header，不放 URL。redirect 被拒絕，不自動重試可能收費的工作。
+
+key 視為不解讀內容的 opaque 字串：去除貼上時的前後空白後，要求非空、最多 8,192 UTF-8 bytes，內部不得有空白，且只能有可見 ASCII（33–126）。這個 8 KiB 上限是本程式的防護，不是 Google 的格式規範。沒有固定前綴、舊的英數底線白名單或 256 字元上限，因此不再因 `AQ.` 形式的句點或長度本身拒絕金鑰。Live 與 HTTP 整理共用同一檢查；通過只代表可安全放入單一 header，伺服器才決定是否有效。
+
+Google 說明 AI Studio 自 2026-05-28 起預設建立綁定 service account 的 authorization key；Cloud 文件將 `keyString` 定義為呼叫 API 使用的加密字串，未提供此處舊 regex 可依賴的固定長度／字元規範。OpenInsert 不解析、解碼或猜測 key 身分。這修正了可由原始碼確認的本機拒絕路徑；未讀取任何使用者實際 key，因此不能據此確認個別失敗的根因，也不能宣稱已完成真實服務驗證。[Gemini key 指引](https://ai.google.dev/gemini-api/docs/api-key)、[Google Cloud API keys](https://docs.cloud.google.com/docs/authentication/api-keys)
 
 setup 指定 `responseModalities: ["TEXT"]`、`inputAudioTranscription.mode: "VERBATIM"`、自訂詞彙與 `languageCodes: []`。語言自動偵測，不把 UI 的自然語言偏好字串誤當 BCP-47 code；官方表未列台灣華語專用的繁中 code。繁中偏好改在定稿後用本機 `Hans-Hant` 字形轉換，英文維持原樣。這是字形轉換，不能保證台灣用詞、專有名詞或一對多字形全正確。
 
