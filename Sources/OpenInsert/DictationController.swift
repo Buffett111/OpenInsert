@@ -13,6 +13,7 @@ import OpenInsertCore
     @Published private(set) var liveConnected = false
     @Published private(set) var lastFailure: String?
     @Published private(set) var copiedToClipboard = false
+    @Published private(set) var pasteDispatched = false
     @Published private(set) var checkingConnection = false
     @Published private(set) var testingPipeline = false
     @Published private(set) var processingSeconds: TimeInterval = 0
@@ -163,6 +164,7 @@ import OpenInsertCore
         guard phase == .idle else { return }
         lastFailure = nil
         copiedToClipboard = false
+        pasteDispatched = false
         liveText = ""
         liveConnected = false
         timingSummary = ""
@@ -333,7 +335,10 @@ import OpenInsertCore
         var copyReason = unavailableReason ?? "未取得輸入位置。"
         if let captured {
             do {
-                let method = try await inserter.insert(text, into: captured, restoreClipboard: restoreClipboard)
+                let method = try await inserter.insert(text, into: captured, restoreClipboard: restoreClipboard) { [weak self] in
+                    guard let self, self.generation == token, self.phase == .inserting else { return }
+                    self.pasteDispatched = true
+                }
                 try Task.checkCancellation()
                 guard generation == token else { return }
                 reset(message: prefix + method)
@@ -490,6 +495,7 @@ import OpenInsertCore
         testingPipeline = false
         self.message = message
         copiedToClipboard = copied
+        pasteDispatched = false
         lastFailure = isError ? message : nil
     }
     func copyResult() {
@@ -506,6 +512,7 @@ import OpenInsertCore
         guard !busy else { return }
         phase = .testing
         copiedToClipboard = false; lastFailure = nil
+        pasteDispatched = false
         let token = UUID(); generation = token
         operation = Task { [weak self] in
             guard let self else { return }

@@ -4,7 +4,7 @@
 
 An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Built for **multilingual dictation and code-switching**, with editable writing-language preferences. Native Swift, no third-party package dependencies, no OpenInsert account, no screen capture.
 
-**Development version 0.2.6 (not released):** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
+**Early release 0.2.7:** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
 
 [繁體中文說明](#繁體中文快速開始) · [Detailed survey](docs/SURVEY.md) · [Dup model evidence](docs/DUP_MODELS.md) · [Architecture](docs/ARCHITECTURE.md) · [Privacy](docs/PRIVACY.md)
 
@@ -16,7 +16,7 @@ An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Buil
 - Shows live previews, processing status, and errors in a floating panel while you keep typing in another app. The panel does not activate OpenInsert or intercept clicks. **Unfinalized previews are never inserted.**
 - Offers verbatim output or a separate, text-only cleanup request to **Gemini 3.5 Flash Lite**, using minimal thinking with an eight-second total deadline. You can skip cleanup while waiting. A skip or temporary cleanup failure uses the finalized ASR text and reports the fallback; cancellation, invalid/blocked responses, and permanent errors stop automatic insertion.
 - Provides a writing-language menu: Traditional Chinese (Taiwan), automatic, Simplified Chinese, English, Japanese, Korean, or custom. ASR still detects spoken languages automatically; mixed-language speech is preserved. Chinese character conversion happens locally, including live previews; the menu does not request translation.
-- Uses Accessibility to validate the input target, then requests a standard **Command-V clipboard paste** in every supported app. It does not write transcript text through AX attributes or synthesize Return.
+- Uses Accessibility to validate the input target, then requests a standard **Command-V clipboard paste** in every supported app. It does not write transcript text through AX attributes or synthesize Return. The floating panel hides as soon as the paste is dispatched, while clipboard restoration completes in the background; it does not linger over the editor with a completion message.
 - Checks the original app, input element, and available selection metadata before insertion. If a completed dictation has no valid input target or a supported insertion error occurs before paste is dispatched, it automatically copies the finalized result and shows a copied status in the floating panel. You can paste it yourself without reopening OpenInsert.
 - Normal paste restores all readable clipboard formats only if the clipboard has not changed. Automatic copy is intentional and persistent: it replaces the clipboard without restoring its old contents, even when paste restoration is enabled. Cancellation, missing final text, permanent provider failures, and clipboard ownership/read/write errors do not trigger automatic copy.
 - Stores the API key in macOS Keychain. No transcription history, analytics, developer backend, screenshots, OCR, or screen recording permission.
@@ -26,7 +26,7 @@ There is no guarantee that every editor accepts automatic insertion. Secure fiel
 
 ## Download and setup
 
-Get published `.dmg` or `.zip` builds from [Releases](https://github.com/Buffett111/OpenInsert/releases). Version 0.2.6 is still under validation and is not published. Universal builds contain Apple Silicon and Intel executables. macOS 13 or newer is required.
+Get published `.dmg` or `.zip` builds from [Releases](https://github.com/Buffett111/OpenInsert/releases). [Version 0.2.7](https://github.com/Buffett111/OpenInsert/releases/tag/v0.2.7) includes the latest clipboard and input compatibility fixes. Universal builds contain Apple Silicon and Intel executables. macOS 13 or newer is required.
 
 1. Move `OpenInsert.app` to Applications and open it.
 2. Quit Dup or another app that already owns Option + Space.
@@ -66,7 +66,7 @@ swift test
 ./scripts/build-app.sh
 ```
 
-The app is created at `dist/OpenInsert.app`. Build/install the app bundle rather than running the bare executable: microphone permissions require its Info.plist and a stable app identity.
+The working app is created at `.build/app-staging.noindex/OpenInsert.app`, outside normal Spotlight discovery. ZIP, DMG and checksum files are placed in `dist`. Build/install the app bundle rather than running the bare executable: microphone permissions require its Info.plist and a stable app identity.
 
 ```sh
 # Both Apple Silicon and Intel, including zip, DMG and SHA-256 checksums:
@@ -88,7 +88,7 @@ Build scripts use project-local caches. In an environment that forbids nested `s
 
 ## 繁體中文快速開始
 
-OpenInsert 0.2.6 是支援多語言混用（code-switching）的開源 macOS 語音輸入工具，目前仍在驗證、尚未發布。預設 **Option + Space**：按住至少 0.35 秒說話、放開完成；也可短按開始、再按一次結束。說話時透過你自己的 Gemini API key，將音訊直接串流到 **Gemini 3.5 Transcribe Live**。選擇輕度整理時，確定的逐字稿再交給 **Gemini 3.5 Flash Lite**；逐字模式跳過這一步。
+OpenInsert 0.2.7 是支援多語言混用（code-switching）的開源 macOS 語音輸入工具，目前提供 early release。預設 **Option + Space**：按住至少 0.35 秒說話、放開完成；也可短按開始、再按一次結束。說話時透過你自己的 Gemini API key，將音訊直接串流到 **Gemini 3.5 Transcribe Live**。選擇輕度整理時，確定的逐字稿再交給 **Gemini 3.5 Flash Lite**；逐字模式跳過這一步。
 
 第一次使用請在「連線與權限」儲存 API key、同意即時音訊串流與可選文字整理、開啟麥克風與輔助使用權限，並先結束 Dup 避免快捷鍵衝突。由 0.1 升級需要重新同意。「文字語言偏好」可選繁體中文（台灣）、自動、簡體中文、English、日本語、韓語或自訂。ASR 仍自動偵測語言；繁／簡選項在本機轉換中文字形（含即時字幕），保留原本的多語言混用，不要求翻譯。
 

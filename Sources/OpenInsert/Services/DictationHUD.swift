@@ -46,6 +46,12 @@ final class DictationHUD {
             self.failureRevision &+= 1
             self.scheduleRefresh()
         }.store(in: &subscriptions)
+        // The new published value is available before the controller assignment.
+        // Hide synchronously when paste is dispatched, without waiting for the
+        // coalesced refresh or the clipboard restoration interval.
+        controller.$pasteDispatched.removeDuplicates().sink { [weak self] dispatched in
+            if dispatched { self?.hide() }
+        }.store(in: &subscriptions)
     }
 
     /// Demonstrates the display only: no recording, provider request, or controller mutation.
@@ -85,14 +91,24 @@ final class DictationHUD {
         let previouslyBusy = wasBusy
         wasBusy = controller.busy
         if controller.busy {
-            show(currentContent(failure: false), dismissAfter: nil)
+            if controller.pasteDispatched { hide() }
+            else { show(currentContent(failure: false), dismissAfter: nil) }
         } else if controller.lastFailure != nil,
                   previouslyBusy || displayedFailureRevision != failureRevision {
             displayedFailureRevision = failureRevision
             show(currentContent(failure: true), dismissAfter: 10)
         } else if previouslyBusy {
-            show(currentContent(failure: false), dismissAfter: controller.copiedToClipboard ? 6 : 2)
+            if controller.copiedToClipboard { show(currentContent(failure: false), dismissAfter: 6) }
+            else { hide() }
         }
+    }
+
+    private func hide() {
+        guard !closed else { return }
+        displayRevision &+= 1
+        dismissWork?.cancel()
+        dismissWork = nil
+        panel.orderOut(nil)
     }
 
     private func currentContent(failure: Bool) -> DictationHUDContent {

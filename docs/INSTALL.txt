@@ -1,5 +1,5 @@
-OpenInsert 0.2.6 — macOS 13 or later
-Development build under validation; not published as a release.
+OpenInsert 0.2.7 — macOS 13 or later
+Community prerelease: ad-hoc signed and not notarized.
 
 1. Drag OpenInsert.app to Applications.
 2. Open it and save your own Gemini API key in Connection & Permissions.
@@ -124,9 +124,14 @@ does not clear the copied clipboard.
 To exercise this behavior without microphone or Google, use the five-second fixed
 text insertion test: it uses the same paste-or-copy delivery rules. Verify the
 new behavior in your editor. Internal 0.2.5 was not released and still failed to
-capture focus in the affected ChatGPT/Codex desktop app; prior 0.2.4 fixed-sentence
-success does not validate 0.2.6 initialization or the complete dictation flow.
+capture focus in the affected ChatGPT/Codex desktop app. The user confirmed a
+spoken dictation directly in that input on 0.2.6. Repeated restarts and other
+editors still require separate validation.
 Automatic insertion does not work in every app. It never presses Return; destination
 apps can still react to inserted text. The final result also stays available in
 OpenInsert's result view. See docs/VALIDATION.md in the source
 repository for the real-service and cross-app checks completed for this release.
+
+The floating panel hides immediately after a standard paste is dispatched.
+Automatic-copy and error notices remain visible so you can recover the result.
+The clipboard restoration delay does not keep the panel over your input field.

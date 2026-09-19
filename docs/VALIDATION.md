@@ -1,6 +1,15 @@
 # 驗證紀錄
 
-記錄日期：2026-09-19；目前驗證版本：0.2.6／build 8（尚未發布）。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+記錄日期：2026-09-19；目前驗證版本：0.2.7／build 9（準備發布）。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+
+## 0.2.7 浮動框收起與建置副本（已安裝，發布檢查中）
+
+- 正常貼上事件派送後，以 nonthrowing callback 立即通知 HUD 收起，不等待 800 ms 剪貼簿恢復，也不顯示原有兩秒完成訊息。剪貼簿恢復與所有權檢查保留；自動複製及錯誤提示分別保留六秒及十秒。派送不等於目的地提供收件確認。
+- Spotlight 查詢實際回傳 `/Applications/OpenInsert.app` 及專案 `dist/OpenInsert.app` 兩筆相同 bundle identifier，確認重複結果來自正式安裝版及開發產物。已取消後者的 LaunchServices 登錄並移入 `.build/app-staging.noindex`；正式安裝版未變更。建置腳本及 CI 已改用隱藏 staging，DMG 暫存改為退出時清理，公開壓縮檔留在 `dist`。
+- **Spotlight 索引已只剩一筆**：移動後重新執行相同 bundle identifier 的 `mdfind`，只回傳 `/Applications/OpenInsert.app`。Spotlight 原生 UI 工具讀取失敗，因此此項證據是搜尋索引結果，未宣稱已直接檢視使用者的搜尋面板。
+- **新版測試與建置通過**：105／105 XCTest、macOS 13／Swift 5 完整 App typecheck、本機 universal ZIP／DMG 封裝成功。新 staging 路徑與退出清理已實際用於打包；公開產物仍將由乾淨 CI 建置，避免上傳本機簽署資訊。
+- **已安裝 0.2.7／build 9**：`/Applications/OpenInsert.app` strict codesign 通過，新 UI 確認版本、API key 已儲存、Google 同意、麥克風與輔助使用均保留正常；未重設權限。舊版已備份，僅更新正式安裝路徑。
+- HUD 的新時序已經原始碼與型別檢查確認；已請使用者再測語音插入後是否立即收起，尚待回覆。0.2.6 的實機成功不能視為已驗證 0.2.7 HUD 時序。公開 release 產物將另行下載核對。
 
 ## 0.2.6 Accessibility 初始化（ChatGPT 插入與自動複製已確認，未發布）
 

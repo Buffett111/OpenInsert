@@ -163,7 +163,8 @@ final class TextInserter {
                       bundleIdentifier: application.bundleIdentifier)
     }
 
-    func insert(_ text: String, into target: Target, restoreClipboard: Bool) async throws -> String {
+    func insert(_ text: String, into target: Target, restoreClipboard: Bool,
+                onPasteDispatched: @MainActor () -> Void = {}) async throws -> String {
         guard !text.isEmpty else { throw InsertionError.emptyText }
         // Terminals can execute pasted newlines even without a Return key event.
         // Integrated terminals in other apps cannot reliably be identified by
@@ -201,6 +202,9 @@ final class TextInserter {
         up.flags = .maskCommand
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
+        // Notify only that the events were sent, not that the destination
+        // consumed them. This nonthrowing callback cannot retry delivery.
+        onPasteDispatched()
         // Paste dispatch has no receipt. Give the receiving app time to request
         // the clipboard, and preserve anything the user copies in the meantime.
         // Cancellation must not shorten this interval and restore the clipboard

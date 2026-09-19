@@ -17,7 +17,7 @@ jobs:
       - name: Build universal application
         run: ARCH=universal ./scripts/build-app.sh
       - name: Preserve bundle permissions in archive
-        run: ditto -c -k --sequesterRsrc --keepParent dist/OpenInsert.app dist/OpenInsert-universal.zip
+        run: ditto -c -k --sequesterRsrc --keepParent .build/app-staging.noindex/OpenInsert.app dist/OpenInsert-universal.zip
       - uses: actions/upload-artifact@v4
         with:
           name: OpenInsert-universal

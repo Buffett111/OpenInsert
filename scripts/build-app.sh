@@ -24,7 +24,9 @@ else
   build_arch "$architecture"
 fi
 
-app="dist/OpenInsert.app"
+# Keep the working bundle out of the public artifact directory and ordinary
+# Spotlight discovery. Install and launch the copy in /Applications for use.
+app=".build/app-staging.noindex/OpenInsert.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 if [ "$architecture" = universal ]; then
