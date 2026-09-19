@@ -91,7 +91,7 @@ final class DictationHUD {
             displayedFailureRevision = failureRevision
             show(currentContent(failure: true), dismissAfter: 10)
         } else if previouslyBusy {
-            show(currentContent(failure: false), dismissAfter: 2)
+            show(currentContent(failure: false), dismissAfter: controller.copiedToClipboard ? 6 : 2)
         }
     }
 
@@ -101,7 +101,7 @@ final class DictationHUD {
             message: failure ? (controller.lastFailure ?? controller.message) : controller.message,
             transcript: controller.liveText, elapsed: controller.elapsed, level: controller.level,
             recording: controller.phase == .recording, connected: controller.liveConnected,
-            failure: failure, preview: false,
+            failure: failure, copied: controller.copiedToClipboard, preview: false,
             showTranscript: controller.phase == .preparing || controller.phase == .recording || controller.phase == .transcribing || (controller.phase == .testing && controller.testingPipeline)
         )
     }
@@ -153,6 +153,7 @@ private struct DictationHUDContent {
     var recording = false
     var connected = false
     var failure = false
+    var copied = false
     var preview = false
     var showTranscript = false
 }
@@ -170,7 +171,7 @@ private struct DictationHUDView: View {
         let content = model.content
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Image(systemName: content.failure ? "exclamationmark.triangle.fill" : "waveform")
+                Image(systemName: content.failure ? "exclamationmark.triangle.fill" : (content.copied ? "doc.on.clipboard" : "waveform"))
                     .foregroundStyle(content.failure ? .orange : accent)
                 Text(content.title).font(.callout.weight(.semibold)).lineLimit(1)
                 Spacer(minLength: 8)
@@ -185,7 +186,7 @@ private struct DictationHUDView: View {
                     .progressViewStyle(.linear).tint(accent)
             }
             Text(content.message).font(.caption).foregroundStyle(.secondary)
-                .lineLimit(content.failure ? 4 : 2)
+                .lineLimit(content.failure || content.copied ? 4 : 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if !content.failure && content.showTranscript {
                 HStack {

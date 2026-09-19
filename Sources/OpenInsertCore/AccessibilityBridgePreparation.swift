@@ -1,6 +1,6 @@
 import Foundation
 
-/// Tracks one activation attempt per Electron process launch, without any UI
+/// Tracks one activation attempt per application process launch, without any UI
 /// references or text. Repeated focus changes must not restart its debounce.
 public struct AccessibilityBridgePreparation: Sendable {
     private struct Attempt: Sendable {

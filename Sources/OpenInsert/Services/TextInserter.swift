@@ -9,7 +9,10 @@ import OpenInsertCore
 @MainActor
 final class TextInserter {
     private var activationObserver: NSObjectProtocol?
-    private var electronPreparation = AccessibilityBridgePreparation()
+    private var bridgePreparation = AccessibilityBridgePreparation()
+    /// Only the latest preparation's metadata and AX status, never UI content.
+    private(set) var lastPreparationDiagnostic: String?
+    private var lastAttemptDiagnostic: (processID: pid_t, identity: String, message: String)?
 
     init() {
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -23,46 +26,93 @@ final class TextInserter {
         if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
     }
 
-    /// Warm up an Electron app's native Accessibility bridge after it becomes
-    /// frontmost. Only framework metadata, application role and a capability
-    /// flag are inspected; this never enumerates UI children or reads text.
+    /// Warm up a supported app's native Accessibility bridge after it becomes
+    /// frontmost. Only bundle metadata, application role and capability flags
+    /// are inspected; this never enumerates UI children or reads text.
     func prepareCurrentApplication() {
+        lastPreparationDiagnostic = nil
         guard AXIsProcessTrusted(), let application = NSWorkspace.shared.frontmostApplication,
               application.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
-        prepareElectronApplication(application)
+        prepareAccessibilityBridge(application)
     }
 
-    private func prepareElectronApplication(_ application: NSRunningApplication) {
-        guard let bundleURL = application.bundleURL else { return }
-        let framework = bundleURL.appendingPathComponent("Contents/Frameworks/Electron Framework.framework", isDirectory: true)
-        // Inspect the actual application bundle; never infer Electron from its
-        // display name or broadly enable an undocumented Chromium attribute.
-        guard FileManager.default.fileExists(atPath: framework.path), Bundle(url: framework) != nil else { return }
+    private func prepareAccessibilityBridge(_ application: NSRunningApplication) {
+        guard let bundleURL = application.bundleURL else {
+            lastPreparationDiagnostic = "AX 初始化：無 App bundle metadata。"
+            return
+        }
         let pid = application.processIdentifier
-        let identity = bundleURL.path + ":" + String(application.launchDate?.timeIntervalSince1970 ?? 0)
+        let bundleIdentifier = application.bundleIdentifier ?? "unknown"
+        let principalClass = Bundle(url: bundleURL)?.object(forInfoDictionaryKey: "NSPrincipalClass") as? String
+        let identity = bundleIdentifier + ":" + bundleURL.path + ":" + String(application.launchDate?.timeIntervalSince1970 ?? 0)
+        let metadata = "App=\(bundleIdentifier)，class=\(principalClass ?? "unknown")"
+        guard !bridgePreparation.hasAttempted(processID: pid, identity: identity) else {
+            if let last = lastAttemptDiagnostic, last.processID == pid, last.identity == identity {
+                lastPreparationDiagnostic = last.message + "（本次 App 啟動不重送）"
+            } else {
+                lastPreparationDiagnostic = "AX 初始化：\(metadata)；本次 App 啟動已嘗試，不重送。"
+            }
+            return
+        }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.75)
         var role: CFTypeRef?
-        // Electron enables its native AT mode when the application role is read.
-        _ = AXUIElementCopyAttributeValue(app, kAXRoleAttribute as CFString, &role)
-        guard !electronPreparation.hasAttempted(processID: pid, identity: identity) else { return }
+        // Electron and Chromium enable basic native AT mode on this role read.
+        let roleStatus = AXUIElementCopyAttributeValue(app, kAXRoleAttribute as CFString, &role)
         let attribute = "AXManualAccessibility" as CFString
         var settable = DarwinBoolean(false)
         var enabled: CFTypeRef?
-        guard AXUIElementIsAttributeSettable(app, attribute, &settable) == .success, settable.boolValue,
-              AXUIElementCopyAttributeValue(app, attribute, &enabled) == .success,
-              (enabled as? Bool) == false else { return }
-        // Electron documents this flag for third-party assistive software. Its
-        // current implementation debounces activation for two seconds, so send
-        // it once per process launch, without sleeping on the main thread.
-        // https://github.com/electron/electron/blob/main/docs/tutorial/accessibility.md
-        let status = AXUIElementSetAttributeValue(app, attribute, kCFBooleanTrue)
-        electronPreparation.recordAttempt(processID: pid, identity: identity, succeeded: status == .success,
-                                          at: ProcessInfo.processInfo.systemUptime)
+        let settableStatus = AXUIElementIsAttributeSettable(app, attribute, &settable)
+        let valueStatus = AXUIElementCopyAttributeValue(app, attribute, &enabled)
+        let enabledBoolean: Bool?
+        if let enabled, CFGetTypeID(enabled) == CFBooleanGetTypeID() {
+            enabledBoolean = (enabled as? Bool)
+        } else { enabledBoolean = nil }
+        let settableCapability: AccessibilityBridgeActivationPolicy.Settable = settableStatus == .success
+            ? (settable.boolValue ? .writable : .unavailable)
+            : (isUnavailableAttribute(settableStatus) ? .unavailable : .failed)
+        let enabledCapability: AccessibilityBridgeActivationPolicy.Enabled
+        if valueStatus == .success, let enabledBoolean { enabledCapability = .value(enabledBoolean) }
+        else { enabledCapability = isUnavailableAttribute(valueStatus) ? .unavailable : .failed }
+        let details = "AX 初始化：\(metadata)；role AX \(roleStatus.rawValue)；Manual settable=\(settable.boolValue) (AX \(settableStatus.rawValue))，value=\(enabledBoolean.map(String.init) ?? "unavailable") (AX \(valueStatus.rawValue))"
+        lastPreparationDiagnostic = details
+        let action = AccessibilityBridgeActivationPolicy.action(
+            principalClass: principalClass, settable: settableCapability, enabled: enabledCapability)
+        let activationAttribute: String
+        switch action {
+        case .none: return
+        case .enableManual:
+            // https://github.com/electron/electron/blob/main/docs/tutorial/accessibility.md
+            activationAttribute = "AXManualAccessibility"
+        case .enableEnhanced:
+            // Exact BrowserCrApplication metadata and unavailable Manual only.
+            // Chromium implements this setter without a corresponding getter:
+            // https://github.com/chromium/chromium/blob/main/chrome/browser/chrome_browser_application_mac.mm
+            activationAttribute = "AXEnhancedUserInterface"
+        }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid, !application.isTerminated else {
+            lastPreparationDiagnostic = details + "；前景已改變，未要求初始化。"
+            return
+        }
+        let status = AXUIElementSetAttributeValue(app, activationAttribute as CFString, kCFBooleanTrue)
+        // Chromium/Electron debounce activation for two seconds. A setter can
+        // have side effects even when it returns an error, so every attempted
+        // write is recorded once per launch; only AX success earns a preparing
+        // hint. Success does not prove that a focused text control exists.
+        bridgePreparation.recordAttempt(processID: pid, identity: identity, succeeded: status == .success,
+                                        at: ProcessInfo.processInfo.systemUptime)
+        let outcome = status == .success ? "已要求啟用，仍須驗證輸入焦點" : "啟用回傳錯誤"
+        let diagnostic = details + "；\(activationAttribute)=true：\(outcome) (AX \(status.rawValue))"
+        lastPreparationDiagnostic = diagnostic
+        lastAttemptDiagnostic = (pid, identity, diagnostic)
     }
 
-    private func isElectronPreparing(_ pid: pid_t) -> Bool {
-        electronPreparation.isPreparing(processID: pid, at: ProcessInfo.processInfo.systemUptime)
+    private func isUnavailableAttribute(_ status: AXError) -> Bool {
+        status == .attributeUnsupported || status == .noValue || status == .notImplemented
+    }
+
+    private func isBridgePreparing(_ pid: pid_t) -> Bool {
+        bridgePreparation.isPreparing(processID: pid, at: ProcessInfo.processInfo.systemUptime)
     }
 
     struct Target {
@@ -79,12 +129,13 @@ final class TextInserter {
     }
 
     func captureTarget() throws -> Target {
+        lastPreparationDiagnostic = nil
         guard AXIsProcessTrusted() else { throw InsertionError.accessibilityDenied }
         guard let application = NSWorkspace.shared.frontmostApplication,
               application.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
             throw InsertionError.noInputField
         }
-        prepareElectronApplication(application)
+        prepareAccessibilityBridge(application)
         let element: AXUIElement
         do {
             element = try focusedElement(processID: application.processIdentifier)
@@ -94,16 +145,20 @@ final class TextInserter {
             // unsupported focus can plausibly result from an AX tree warming up.
             switch error {
             case .unsupportedInputRole, .noInputField:
-                if isElectronPreparing(application.processIdentifier) { throw InsertionError.accessibilityPreparing }
+                if isBridgePreparing(application.processIdentifier) { throw InsertionError.accessibilityPreparing }
             case .accessibilityReadFailed(_, let code):
                 if (code == AXError.noValue.rawValue || code == AXError.attributeUnsupported.rawValue),
-                   isElectronPreparing(application.processIdentifier) { throw InsertionError.accessibilityPreparing }
+                   isBridgePreparing(application.processIdentifier) { throw InsertionError.accessibilityPreparing }
             default: break
             }
             throw error
         }
+        let selection = try selectedRange(element)
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == application.processIdentifier else {
+            throw InsertionError.targetChanged
+        }
         return Target(processID: application.processIdentifier, element: element,
-                      selection: try selectedRange(element),
+                      selection: selection,
                       applicationName: application.localizedName ?? "the original app",
                       bundleIdentifier: application.bundleIdentifier)
     }
@@ -132,20 +187,13 @@ final class TextInserter {
               let up = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: false) else {
             throw InsertionError.eventCreationFailed
         }
-        if let previous, pasteboard.changeCount != previous.changeCount {
-            throw InsertionError.clipboardChanged
-        }
-        let clearedChangeCount = pasteboard.clearContents()
-        let item = NSPasteboardItem()
-        item.setString(text, forType: .string)
-        guard pasteboard.writeObjects([item]) else {
-            if pasteboard.changeCount == clearedChangeCount { previous?.restore(to: pasteboard) }
-            throw InsertionError.clipboardWriteFailed
-        }
-        let ownedChangeCount = pasteboard.changeCount
+        let ownedChangeCount = try writeClipboard(text, to: pasteboard, restoringOnFailure: previous)
         do { try validate(target) }
         catch {
-            if pasteboard.changeCount == ownedChangeCount { previous?.restore(to: pasteboard) }
+            // Report clipboard ownership loss even when focus also changed, so
+            // automatic copy fallback cannot overwrite newer clipboard content.
+            guard pasteboard.changeCount == ownedChangeCount else { throw InsertionError.clipboardChanged }
+            previous?.restore(to: pasteboard)
             throw error
         }
         guard pasteboard.changeCount == ownedChangeCount else { throw InsertionError.clipboardChanged }
@@ -164,6 +212,31 @@ final class TextInserter {
         }
         if pasteboard.changeCount == ownedChangeCount { previous?.restore(to: pasteboard) }
         return "Paste requested in \(target.applicationName). Check the destination; some apps block simulated paste."
+    }
+
+    /// An explicit permanent copy. It does not require Accessibility, insert
+    /// text, inspect the existing clipboard, or schedule a later restoration.
+    func copyToClipboard(_ text: String) throws {
+        _ = try writeClipboard(text, to: .general, restoringOnFailure: nil)
+    }
+
+    @discardableResult
+    private func writeClipboard(_ text: String, to pasteboard: NSPasteboard,
+                                restoringOnFailure previous: ClipboardSnapshot?) throws -> Int {
+        guard !text.isEmpty else { throw InsertionError.emptyText }
+        let item = NSPasteboardItem()
+        // Prepare the item before clearing, so serialization failure preserves
+        // the existing clipboard. All result writes use this single path.
+        guard item.setString(text, forType: .string) else { throw InsertionError.clipboardWriteFailed }
+        if let previous, pasteboard.changeCount != previous.changeCount {
+            throw InsertionError.clipboardChanged
+        }
+        let clearedChangeCount = pasteboard.clearContents()
+        guard pasteboard.writeObjects([item]) else {
+            if pasteboard.changeCount == clearedChangeCount { previous?.restore(to: pasteboard) }
+            throw InsertionError.clipboardWriteFailed
+        }
+        return pasteboard.changeCount
     }
 
     private func isTerminal(_ target: Target) -> Bool {
@@ -188,10 +261,29 @@ final class TextInserter {
     }
 
     private func focusedElement(processID: pid_t) throws -> AXUIElement {
-        let app = AXUIElementCreateApplication(processID)
-        AXUIElementSetMessagingTimeout(app, 0.75)
+        do {
+            return try FocusedTargetResolver.resolve(expectedProcessID: processID,
+                currentForegroundProcessID: { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+            ) { source in
+                // Apple's system-wide object exposes the current keyboard focus.
+                // App-specific lookup is a bounded fallback for unavailable focus,
+                // never for a foreign PID, failed permission or unsupported role.
+                // https://developer.apple.com/documentation/applicationservices/1462095-axuielementcreatesystemwide
+                let root = source == .systemWide ? AXUIElementCreateSystemWide() : AXUIElementCreateApplication(processID)
+                return try queryFocusedElement(from: root)
+            }
+        } catch is FocusedTargetResolver.Failure {
+            throw InsertionError.targetChanged
+        }
+    }
+
+    private func queryFocusedElement(from root: AXUIElement) throws -> FocusedTargetResolver.Lookup<AXUIElement> {
+        AXUIElementSetMessagingTimeout(root, 0.75)
         var value: CFTypeRef?
-        let status = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value)
+        let status = AXUIElementCopyAttributeValue(root, kAXFocusedUIElementAttribute as CFString, &value)
+        if status == .noValue || status == .attributeUnsupported || status == .notImplemented {
+            return .unavailable(InsertionError.accessibilityReadFailed(kAXFocusedUIElementAttribute, status.rawValue))
+        }
         guard status == .success else { throw InsertionError.accessibilityReadFailed(kAXFocusedUIElementAttribute, status.rawValue) }
         guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
             throw InsertionError.invalidAccessibilityValue(kAXFocusedUIElementAttribute)
@@ -199,10 +291,9 @@ final class TextInserter {
         let element = unsafeBitCast(value, to: AXUIElement.self)
         AXUIElementSetMessagingTimeout(element, 0.75)
         var actualPID: pid_t = 0
-        guard AXUIElementGetPid(element, &actualPID) == .success, actualPID == processID else {
-            throw InsertionError.targetChanged
-        }
-        return element
+        let pidStatus = AXUIElementGetPid(element, &actualPID)
+        guard pidStatus == .success else { throw InsertionError.accessibilityReadFailed("AXUIElementGetPid", pidStatus.rawValue) }
+        return .found(element, processID: actualPID)
     }
 
     private func verifyEditable(_ element: AXUIElement) throws {

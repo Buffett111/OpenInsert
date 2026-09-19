@@ -1,12 +1,12 @@
 # OpenInsert 架構與取捨
 
-本文描述 0.2.4 原始碼的設計。平台為 macOS 13 以上，Swift Package 使用 Swift tools 5.9；程式本身不依賴第三方 package。編譯、單元測試、UI、真實 API 與跨應用插入屬不同驗證層，實際執行結果以 [VALIDATION.md](VALIDATION.md) 為準。
+本文描述尚未發布的 0.2.6 原始碼設計。平台為 macOS 13 以上，Swift Package 使用 Swift tools 5.9；程式本身不依賴第三方 package。編譯、單元測試、UI、真實 API 與跨應用插入屬不同驗證層，實際執行結果以 [VALIDATION.md](VALIDATION.md) 為準。
 
 ## 使用流程
 
 使用者先儲存自己的 Gemini API key，明確同意錄音期間將音訊串流至 Google，以及啟用整理時傳送逐字稿，再核准麥克風與所需的輔助使用權限。0.2 使用獨立的 `liveCloudConsent` 設定，0.1 的上傳同意不會自動沿用。將游標放在其他 App 的文字欄位，以預設 **Option + Space** 開始。按住至少約 0.35 秒再放開會結束錄音；短按可開始，再按一次停止。可切換為 Control + Option + Space 或 Control + Shift + Space，避開其他軟體的快捷鍵。
 
-沒有可驗證的目標欄位或沒有 Accessibility 權限時，仍可辨識並保留結果供手動複製；程式不會因此把內容貼到任意前景視窗。麥克風權限、有效金鑰與雲端同意仍為錄音／雲端路徑的必要條件。
+沒有可驗證的目標欄位或沒有 Accessibility 權限時，仍可完成辨識；成功的定稿結果準備好後自動複製到剪貼簿，並由 HUD 告知，使用者不必再開 App。此流程起於未發布的內部 0.2.5，沿用於 0.2.6。程式不會因此把內容貼到任意前景視窗。麥克風權限、有效金鑰與雲端同意仍為錄音／雲端路徑的必要條件。
 
 0.2.2 在開啟麥克風前，先本機檢查保存的 key 是否能安全傳送，以及 ASR 模型名稱與詞彙設定。缺少 key、夾雜空白／控制字元、超過本機容量上限或不合規設定會回報具體原因；這不是向 Google 查詢憑證有效性，不能預先確認權限、額度或模型可用性。
 
@@ -40,9 +40,10 @@ GeminiLiveTranscriber → WSS → gemini-3.5-transcribe-live
                               ▼
                          驗證整理結果
         │
-        ├─ 原目標已改變／不可驗證 → 顯示結果供手動複製
+        ├─ 原目標已改變／不可驗證 → 符合回退條件時複製定稿 + HUD 告知
         │
         └─ AX 可驗證原目標 → 剪貼簿 + Command-V
+                              ├─ 可回退的派送前錯誤 → 複製定稿，保留供手動貼上
                               │
                               ▼
                         等待 800 ms 後條件式恢復
@@ -54,7 +55,7 @@ GeminiLiveTranscriber → WSS → gemini-3.5-transcribe-live
 | --- | --- | --- |
 | `App.swift`、`MainView.swift` | 原生選單列與 SwiftUI 設定／結果介面 | 不自行組合 HTTP request、不擷取其他 App 文字 |
 | 浮動字幕 HUD | 以不啟用 App、不接收滑鼠點擊的面板呈現即時預覽、處理狀態及錯誤 | 不搶輸入焦點、不擷取背後畫面、不把預覽送進目標 |
-| `DictationController` | 管理狀態、session、取消、錄音至插入的串接 | 不保存逐字稿資料庫 |
+| `DictationController` | 管理狀態、session、取消、錄音至插入／自動複製的串接 | 不保存逐字稿資料庫 |
 | `StreamingAudioRecorder` | 麥克風授權、音訊重取樣、PCM 分塊、音量與有界 RAM 佇列 | 不錄系統音效、不建立錄音檔案 |
 | `GlobalHotKey` | Carbon hotkey 為主；必要時以指定按鍵狀態補回遺失的 release | 不安裝 event tap，不讀取其他按鍵 |
 | `GeminiLiveTranscriber` | WebSocket setup、PCM 傳送、interim／final 解析、完成等待與取消 | 不把 interim 當定稿、不讀本機輸入欄位文字 |
@@ -120,15 +121,23 @@ HTTP 整理沿用序列化 request 18,000,000 bytes、response 1,000,000 bytes�
 
 ### 捕捉與再驗證
 
-已有 Accessibility 授權時，`TextInserter` 會在前景 App 切換及捕捉目標前，檢查實際 bundle 是否包含有效的 `Electron Framework.framework`。確認為 Electron 後，只讀 application role 及 `AXManualAccessibility` 能力／啟用旗標；旗標可寫且尚未啟用時，每次程序啟動最多嘗試設定一次，協助目標建立原生 AX 介面。成功設定後記錄 3 秒準備期間，不阻塞主執行緒等待；此期間僅將符合未就緒情況的焦點缺漏／不支援錯誤顯示為「準備中」。一般焦點與選取範圍讀取會保留實際 AX 屬性名稱及錯誤代碼，權限或安全欄位錯誤不改寫成準備中。這個初始化不列舉 UI 子元件、不讀游標周圍文字，也不上傳 bundle／AX 資訊。
+已有 Accessibility 授權時，`TextInserter` 會在前景 App 切換及捕捉目標前讀取 bundle metadata、application role 與 `AXManualAccessibility` 的可寫能力／布林旗標。0.2.6 移除對 `Electron Framework.framework` 檔名的限制，不以 App 顯示名稱推論架構。Manual 屬性可寫且回傳真正的 Boolean `false` 時，要求設定為 `true`；已為 `true` 就不重設。這使用 [Electron 官方供第三方輔助軟體使用的屬性](https://github.com/electron/electron/blob/main/docs/tutorial/accessibility.md)，但是否嘗試由實際能力決定。
+
+若 Manual 無法使用，只有 bundle 的 `NSPrincipalClass` **完全等於 `BrowserCrApplication`** 才能改要求 `AXEnhancedUserInterface = true`，不讀其 getter。Manual 的 unavailable 限於查詢回報 `attributeUnsupported`、`noValue`、`notImplemented`，或 settable 查詢成功但不可寫；Manual 查詢的權限／通訊錯誤或非布林資料不允許這條替代路徑。依據是 [Chromium 的 BrowserCrApplication 實作](https://github.com/chromium/chromium/blob/main/chrome/browser/chrome_browser_application_mac.mm#L391-L464)：該 setter 可要求啟用完整 AX 模式，程式本身有兩秒 debounce。這是 Chromium 實作中的非公開 Apple 屬性，並非 Apple 保證的通用 API；class metadata 也不能證明目標內含相同 Chromium revision 或一定會提供輸入焦點。本機受影響 App 有 `Codex Framework.framework` 與該 principal class，支持將其視為 Chromium-based metadata，不能簡化成只改名的 Electron。
+
+寫入前再次確認目標仍在前景且未終止。在本次 OpenInsert 執行期間，以 PID、bundle ID／路徑與 launch date 區分目標程序啟動，每次最多嘗試一次旗標寫入，即使 setter 回報錯誤也記錄，因為它仍可能有副作用。不停用旗標、不反覆重送，也不在主執行緒 sleep；只有 setter 成功才建立本機 **3 秒準備期間**。此期間僅將符合未就緒情況的焦點缺漏／不支援錯誤顯示為「準備中」，實際焦點仍須驗證，成功啟用旗標不代表存在可編輯欄位。一般焦點與選取範圍讀取保留實際 AX 屬性名稱及錯誤代碼，權限或安全欄位錯誤不改寫成準備中。
+
+最近一次初始化診斷只在記憶體保留 bundle ID、principal class、AX status、旗標布林值及嘗試動作；沒有 UI 文字。初始化不列舉 UI 子元件、不讀輸入內容或游標周圍文字，也不上傳 bundle／AX 資訊。
 
 錄音前記下前景 PID、focused AX element、可取得的選取範圍及應用名稱／bundle ID。拒絕自己的視窗、已停用控制項、密碼／受保護欄位；只接受已知文字 role 或回報 `AXSelectedText` 可設定的元件；後者只查詢可寫能力作為可編輯證據，不讀取選取文字，也不設定該屬性。macOS Secure Event Input 啟用時也一律拒絕自動插入，涵蓋部分仍暴露一般文字 role 的終端密碼提示。這些是本機插入定位資訊，不送 Google。
+
+取得焦點沿用內部 0.2.5 策略：先查 system-wide `AXFocusedUIElement`；只有回報 `noValue`（-25212）、`attributeUnsupported` 或 `notImplemented`，才改查同一個預期 App 的 focused element。最多兩次查詢，沒有 sleep 或循環重試。每次查詢前後均要求前景 PID 仍等於預期 PID，回傳元件的 PID 也必須一致；跨程序元件、無效資料、權限與無回應錯誤不進入替代查詢。回傳成功但 role 為視窗、非可編輯欄位或受保護欄位時仍拒絕，不搜尋 parent／children 猜測目標。只使用焦點、role／subrole、secure／enabled、selection range 與可編輯能力 metadata，不讀 `AXValue` 或選取文字。0.2.5 實機仍得到 -25212，證明此策略本身不足以修復當時問題；0.2.6 的初始化調整效果須另行驗證。
 
 插入前重新確認 PID、元件身分與選取範圍相同，避免等待辨識時換 app、換欄位或移動游標造成誤貼。若 AX 未提供 range，前後同為 `nil` 不能偵測同元件內的游標移動。焦點檢查與實際事件派送亦非作業系統原子交易；檢查後瞬間切換仍是殘餘競態。目標應用可自動改內容而不改 range，程式也無法在不讀全文的前提下完整辨識此情況。
 
 ### 標準剪貼簿貼上
 
-0.2.4 統一以剪貼簿加 Command-V 插入，不再透過 `AXSelectedText` 寫入逐字稿。變更源自使用者回報：舊版在 TextEdit 可成功，但桌面聊天編輯器即使 AX setter 回報成功也沒有出現文字；這只能證明兩個目標行為不同，不能將 AX 成功碼當成可見文字已更新的收件證明。新貼上方式在該編輯器的成效仍需實測。
+自 0.2.4 起統一以剪貼簿加 Command-V 插入，不再透過 `AXSelectedText` 寫入逐字稿。變更源自使用者回報：舊版在 TextEdit 可成功，但桌面聊天編輯器即使 AX setter 回報成功也沒有出現文字；這只能證明兩個目標行為不同，不能將 AX 成功碼當成可見文字已更新的收件證明。使用者其後確認 0.2.4 固定測試句能進入該桌面輸入框；這不是所有編輯器、完整語音流程或後續焦點／初始化處理的驗證。
 
 啟用恢復時完整備份所有目前可取得的 pasteboard item/type 資料；任一格式無法讀取就停止，避免宣稱已備份但遺失資料。備份只在記憶體使用。每次插入只請求一次標準貼上，不在貼上後以 AX 寫入或自動重貼補救，避免文字已接收卻被重複插入。使用者保留最後結果，可先檢查目標再決定手動複製。
 
@@ -136,12 +145,20 @@ HTTP 整理沿用序列化 request 18,000,000 bytes、response 1,000,000 bytes�
 
 這個路徑回報「Paste requested」，不宣稱已讀回確認目標文字。800 ms 是固定折衷，極忙的 App 可能更晚讀取；AX 只提供目標定位資訊，不能證明目的 App 已消費貼上。故必須保留最後結果、手動複製與實際 app 相容性矩陣。
 
-已知終端的 bundle ID 或名稱會觸發額外檢查，拒絕自動插入含換行或 tab 的文字，因為貼上也可能執行命令。這在請求剪貼簿貼上前檢查，但無法可靠辨識一般編輯器內的整合終端，名稱偵測也可能漏判。OpenInsert 不模擬 Enter，也沒有自動送出功能；這不能保證目的 App 不因收到文字、換行或自訂事件而自行提交。受限結果保留供使用者檢查後手動複製。
+已知終端的 bundle ID 或名稱會觸發額外檢查，拒絕自動插入含換行或 tab 的文字，因為貼上也可能執行命令。這在請求剪貼簿貼上前檢查，但無法可靠辨識一般編輯器內的整合終端，名稱偵測也可能漏判。OpenInsert 不模擬 Enter，也沒有自動送出功能；這不能保證目的 App 不因收到文字、換行或自訂事件而自行提交。符合上述派送前回退條件的定稿結果會自動複製，仍由使用者檢查後決定是否手動貼上；這不放寬終端自動貼上的限制。
+
+### 完成後自動複製
+
+普通語音輸入在成功取得並選定最終文字後，若沒有捕捉到有效目標（包括無欄位、缺少 AX 授權或受保護欄位），會把結果直接複製到剪貼簿，不嘗試貼到任意視窗。已捕捉目標但 `TextInserter` 在派送前發生已知、可回退的插入錯誤，也可改為複製。`emptyText`、`clipboardChanged`、`clipboardUnreadable`、`clipboardWriteFailed` 不觸發再次寫入，以免忽略文字缺漏、剪貼簿所有權或備份失敗。取消、尚未定稿、未被處理或永久的 provider 失敗、未知錯誤及貼上已派送後的錯誤均不觸發自動複製。原本已接受的略過後修或暫時後修錯誤，若成功採用 authoritative ASR 定稿，仍走正常送達流程，無目標時可自動複製。
+
+這是持續保留結果的複製操作，會取代目前剪貼簿，不讀取或備份舊資料，也不套用正常貼上的 800 ms 恢復；即使使用者啟用恢復剪貼簿亦然。只使用既有 Gemini 驗證通過的最終文字，不新增字元／容量政策。`deliverFinalText` 統一處理普通定稿與固定文字測試的送達；剪貼簿寫入成功才回報已複製，HUD 約顯示 6 秒且不啟用主視窗，使用者直接 Command-V 即可；複製失敗顯示錯誤、保留 `lastText` 供手動取用，不謊報成功。清除 App 結果或結束 App 不會自動清除已複製的剪貼簿。原有正常貼上及其所有權檢查、800 ms 恢復流程不變。
+
+內建「測試文字插入（5 秒倒數）」也使用相同送達流程，以固定文字測試貼上或無目標時自動複製，不開麥克風、不呼叫 API。另有合成音訊的 Google pipeline 診斷，仍不進入這個貼上／複製流程。新行為是否解決特定 App 問題，需由 [VALIDATION.md](VALIDATION.md) 中的對應實測確認。
 
 ## 權限與散布
 
 - **Microphone：** 只在使用者明確開始或按權限按鈕時請求，錄音在目前程序中進行。
-- **Accessibility：** 用於驗證可編輯欄位、必要的 Electron AX 初始化及派送標準貼上；不以 AX 屬性寫入逐字稿，不作 OCR 或畫面理解。
+- **Accessibility：** 用於驗證可編輯欄位、依能力或狹窄 Chromium metadata 條件初始化 AX，以及派送標準貼上；只設定初始化旗標，不以 AX 屬性寫入逐字稿，不作 OCR 或畫面理解。
 - **不要求 Screen Recording：** 沒有截圖、OCR、螢幕錄影或系統音效錄音管線。
 - **快捷鍵：** 註冊特定 Carbon hotkey，不需要為全鍵盤監聽增加 Input Monitoring。
 - **Keychain：** generic password，service `org.openinsert.OpenInsert`、account `gemini-api-key`；新增時為 `WhenUnlockedThisDeviceOnly`。

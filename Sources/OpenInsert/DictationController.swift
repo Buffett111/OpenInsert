@@ -12,6 +12,7 @@ import OpenInsertCore
     @Published private(set) var liveText = ""
     @Published private(set) var liveConnected = false
     @Published private(set) var lastFailure: String?
+    @Published private(set) var copiedToClipboard = false
     @Published private(set) var checkingConnection = false
     @Published private(set) var testingPipeline = false
     @Published private(set) var processingSeconds: TimeInterval = 0
@@ -58,7 +59,7 @@ import OpenInsertCore
     var busy: Bool { phase != .idle }
     var statusTitle: String {
         switch phase {
-        case .idle: return "隨時開口，文字就位。"
+        case .idle: return copiedToClipboard ? "已複製到剪貼簿" : "隨時開口，文字就位。"
         case .preparing: return checkingConnection ? "正在測試 Gemini 連線…" : "正在準備麥克風…"
         case .recording: return liveConnected ? "正在即時辨識…" : "正在連線辨識服務…"
         case .transcribing: return String(format: "正在完成語音辨識… %.1f 秒", processingSeconds)
@@ -161,6 +162,7 @@ import OpenInsertCore
     func startRecording() {
         guard phase == .idle else { return }
         lastFailure = nil
+        copiedToClipboard = false
         liveText = ""
         liveConnected = false
         timingSummary = ""
@@ -183,7 +185,7 @@ import OpenInsertCore
         do { target = try inserter.captureTarget() }
         catch {
             target = nil
-            targetCaptureFailure = error.localizedDescription
+            targetCaptureFailure = captureFailureDescription(error)
             accessibilityGranted = AXIsProcessTrusted()
         }
         sessionOptions = settings.options
@@ -213,7 +215,7 @@ import OpenInsertCore
                         try await client.start()
                         if let self, self.generation == token, self.phase == .recording {
                             self.liveConnected = true
-                            self.message = self.target == nil ? "\(self.targetCaptureFailure ?? "無法取得輸入位置。") 這次將保留結果供手動複製。" : "音訊正串流至 Google。放開快捷鍵結束；短按可切換錄音。"
+                            self.message = self.target == nil ? "未取得輸入位置，完成後會自動複製到剪貼簿。\(self.targetCaptureFailure ?? "")" : "音訊正串流至 Google。放開快捷鍵結束；短按可切換錄音。"
                         }
                         for try await chunk in stream {
                             try Task.checkCancellation()
@@ -304,13 +306,8 @@ import OpenInsertCore
                 try Task.checkCancellation()
                 guard generation == token else { return }
                 lastText = text
-                guard let capturedTarget else {
-                    reset(message: fallback + "辨識完成。\(captureFailure ?? "未取得輸入位置。") 請複製下方結果。", isError: true); return
-                }
-                phase = .inserting
-                let method = try await inserter.insert(text, into: capturedTarget, restoreClipboard: restore)
-                guard generation == token else { return }
-                reset(message: fallback + method)
+                try await deliverFinalText(text, to: capturedTarget, unavailableReason: captureFailure,
+                                           prefix: fallback, restoreClipboard: restore, token: token)
             } catch {
                 await client.cancel()
                 guard generation == token else { return }
@@ -323,6 +320,54 @@ import OpenInsertCore
                 reset(message: error is CancellationError ? "已取消。已送出的音訊無法收回。" : "\(stage)：\(error.localizedDescription)", isError: !(error is CancellationError))
             }
         }
+    }
+
+    /// Called only after a finalized, accepted result (or the fixed insertion test).
+    /// Unknown failures and clipboard ownership failures must not trigger another write.
+    private func deliverFinalText(_ text: String, to captured: TextInserter.Target?,
+                                  unavailableReason: String?, prefix: String = "",
+                                  restoreClipboard: Bool, token: UUID) async throws {
+        try Task.checkCancellation()
+        guard generation == token else { return }
+        phase = .inserting
+        var copyReason = unavailableReason ?? "未取得輸入位置。"
+        if let captured {
+            do {
+                let method = try await inserter.insert(text, into: captured, restoreClipboard: restoreClipboard)
+                try Task.checkCancellation()
+                guard generation == token else { return }
+                reset(message: prefix + method)
+                return
+            } catch {
+                try Task.checkCancellation()
+                guard generation == token else { return }
+                // TextInserter throws these errors before sending the paste.
+                // Once a paste is sent it never throws or retries delivery.
+                guard let insertionError = error as? TextInserter.InsertionError else { throw error }
+                switch insertionError {
+                case .emptyText, .clipboardChanged, .clipboardUnreadable, .clipboardWriteFailed:
+                    throw error
+                case .accessibilityDenied, .noInputField, .secureField, .targetChanged,
+                     .selectionChanged, .modifierHeld, .eventCreationFailed, .terminalControlText,
+                     .accessibilityPreparing, .unsupportedInputRole, .accessibilityReadFailed,
+                     .invalidAccessibilityValue:
+                    copyReason = insertionError.localizedDescription
+                }
+            }
+        }
+        try Task.checkCancellation()
+        guard generation == token else { return }
+        do {
+            try inserter.copyToClipboard(text)
+            reset(message: "已複製到剪貼簿，按 ⌘V 即可貼上。\(prefix)\n未自動插入：\(copyReason)", copied: true)
+        } catch {
+            reset(message: "結果已完成，但無法複製到剪貼簿：\(error.localizedDescription) 結果仍保留在 App。", isError: true)
+        }
+    }
+
+    private func captureFailureDescription(_ error: Error) -> String {
+        guard let diagnostic = inserter.lastPreparationDiagnostic else { return error.localizedDescription }
+        return "\(error.localizedDescription) 輸入介面：\(diagnostic)"
     }
 
     func skipPolishing() {
@@ -434,7 +479,7 @@ import OpenInsertCore
         recorder.cancel()
         reset(message: "已取消；本機音訊緩衝已釋放，已傳送至 Google 的音訊無法收回。")
     }
-    private func reset(message: String, isError: Bool = false) {
+    private func reset(message: String, isError: Bool = false, copied: Bool = false) {
         timer?.invalidate(); timer = nil
         sessionKey = ""; target = nil; targetCaptureFailure = nil; stopWhenReady = false; shortcutGesture.reset()
         liveSession = nil; sender = nil
@@ -444,18 +489,23 @@ import OpenInsertCore
         checkingConnection = false
         testingPipeline = false
         self.message = message
+        copiedToClipboard = copied
         lastFailure = isError ? message : nil
     }
     func copyResult() {
         guard !lastText.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lastText, forType: .string)
-        message = "結果已複製。"
+        do {
+            try inserter.copyToClipboard(lastText)
+            message = "結果已複製，按 ⌘V 即可貼上。"
+            copiedToClipboard = true
+            lastFailure = nil
+        } catch { message = error.localizedDescription; lastFailure = message }
     }
-    func clearResult() { lastText = ""; message = "已清除記憶體中的辨識結果。" }
+    func clearResult() { lastText = ""; copiedToClipboard = false; message = "已清除記憶體中的辨識結果。" }
     func testInsertion() {
         guard !busy else { return }
         phase = .testing
+        copiedToClipboard = false; lastFailure = nil
         let token = UUID(); generation = token
         operation = Task { [weak self] in
             guard let self else { return }
@@ -465,13 +515,15 @@ import OpenInsertCore
                     try await Task.sleep(nanoseconds: 1_000_000_000)
                 }
                 try Task.checkCancellation()
-                let captured = try inserter.captureTarget()
+                guard generation == token else { return }
                 let test = "OpenInsert 文字插入測試成功。"
                 lastText = test
-                phase = .inserting
-                let method = try await inserter.insert(test, into: captured, restoreClipboard: settings.restoreClipboard)
-                guard generation == token else { return }
-                reset(message: method)
+                let captured: TextInserter.Target?
+                let reason: String?
+                do { captured = try inserter.captureTarget(); reason = nil }
+                catch { captured = nil; reason = captureFailureDescription(error) }
+                try await deliverFinalText(test, to: captured, unavailableReason: reason,
+                                           restoreClipboard: settings.restoreClipboard, token: token)
             } catch {
                 guard generation == token else { return }
                 reset(message: error.localizedDescription, isError: true)

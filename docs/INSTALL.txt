@@ -1,4 +1,5 @@
-OpenInsert 0.2.4 — macOS 13 or later
+OpenInsert 0.2.6 — macOS 13 or later
+Development build under validation; not published as a release.
 
 1. Drag OpenInsert.app to Applications.
 2. Open it and save your own Gemini API key in Connection & Permissions.
@@ -86,17 +87,46 @@ may still require permission again. This is not Developer ID signing or notariza
 Do not publish personal certificates, emails, fingerprints or private keys.
 Public CI has no local identity file and retains its ad-hoc default.
 
-Version 0.2.4 validates the original input target through Accessibility, then uses
+OpenInsert validates the original input target through Accessibility, then uses
 the clipboard and standard Command-V for every automatic insertion. It does not
 write transcript text through AX attributes. With restoration enabled, readable
 clipboard formats are backed up in memory and restored after 800 ms only if the
 clipboard still has the app-owned version. With restoration disabled, the result
 stays on the clipboard. No clipboard data is uploaded.
 
+With Accessibility already granted, version 0.2.6 checks the target app's actual
+AXManualAccessibility capability instead of requiring an Electron framework filename.
+Only a writable Boolean false flag is enabled. If Manual is unavailable, an exact
+NSPrincipalClass of BrowserCrApplication permits the Chromium AXEnhancedUserInterface
+activation path; Manual permission/transport errors or invalid data do not qualify.
+Activation is attempted once per identified target process launch during this
+OpenInsert run. A successful setter allows a three-second preparation window;
+it does not prove that an editable field is ready. No input content is read.
+If preparation is reported, keep the target app focused, wait a few seconds, and
+retry. The new initialization still requires validation in the affected editor.
+
 The status confirms only that paste was requested, not that the editor accepted it.
-There is no automatic AX write or second paste retry. The reported desktop chat
-editor behavior still requires validation; check the field before manually copying.
+There is no automatic AX write or second paste retry. When a completed dictation
+has no valid input target or a supported error occurs before paste dispatch, OpenInsert copies the
+finalized result automatically and shows a copied status in the floating panel.
+Use Command-V yourself without reopening OpenInsert. This intentional copy replaces
+the clipboard and is not restored, even if paste restoration is enabled. Normal
+successful paste still uses the 800 ms guarded restoration described above.
+
+Cancellation, missing final text and permanent provider errors do not trigger
+automatic copy. Empty text or clipboard ownership/read/write failures also stop
+further clipboard mutation; unknown errors and an already-dispatched paste do not
+cause another copy. Only a successful write gets a copied status; otherwise an error
+is shown and the final result remains in the app. The copied HUD lasts about six
+seconds without activating the main window. Clearing the app result or quitting
+does not clear the copied clipboard.
+
+To exercise this behavior without microphone or Google, use the five-second fixed
+text insertion test: it uses the same paste-or-copy delivery rules. Verify the
+new behavior in your editor. Internal 0.2.5 was not released and still failed to
+capture focus in the affected ChatGPT/Codex desktop app; prior 0.2.4 fixed-sentence
+success does not validate 0.2.6 initialization or the complete dictation flow.
 Automatic insertion does not work in every app. It never presses Return; destination
-apps can still react to inserted text. Results remain available for manual copy if
-the destination changes or refuses input. See docs/VALIDATION.md in the source
+apps can still react to inserted text. The final result also stays available in
+OpenInsert's result view. See docs/VALIDATION.md in the source
 repository for the real-service and cross-app checks completed for this release.

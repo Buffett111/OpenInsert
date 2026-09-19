@@ -108,7 +108,7 @@ struct MainView: View {
                 .padding(8).background(.background, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
                 .accessibilityLabel("最近一次辨識結果")
-            Text("若辨識期間切換輸入位置，結果會保留在這裡供你複製。程式不會模擬 Enter；已知終端機的多行貼上會改為手動複製。")
+                Text("沒有可用輸入位置時，完成的結果會自動複製到剪貼簿，可直接按 ⌘V 貼上。程式不會模擬 Enter；已知終端機的多行內容會複製到剪貼簿供你手動貼上。")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button("測試文字插入（5 秒倒數）") { controller.testInsertion() }.disabled(controller.busy)
