@@ -11,7 +11,9 @@
 - 完整 macOS 13／Swift 5 typecheck、arm64／x86_64 universal 建置與 strict codesign 驗證通過。
 - 已更新 `/Applications/OpenInsert.app`；原生 UI 確認版本 0.2.4，API key 已儲存、Google 同意保留，麥克風與輔助使用均顯示「已啟用」，沒有快捷鍵註冊錯誤。
 - 0.2.3 與 0.2.4 的本機 designated requirement 相同；本次更新未重設任何權限。先前待確認的麥克風重設已不需要，沒有執行。
-- 改名後的 ChatGPT／Codex 桌面版固定文字插入仍待使用者手動確認；不能把舊版 TextEdit 成功直接當作新版或 ChatGPT 相容性通過。
+- **ChatGPT／Codex 桌面插入成功（使用者手動確認）**：更新 0.2.4 後，使用者執行內建五秒固定文字測試，明確回覆「文字已成功出現」。這是該實機、該輸入框的可見結果，不等於所有 App 相容性；兩種快捷鍵的實際語音整合另行驗證。
+
+GitHub macOS 15 [Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35435222368) 與 [Release](https://github.com/Buffett111/OpenInsert/actions/runs/35435286689) 均通過（commit `09a4255`），包括 88 個 XCTest、15 項合成 PCM 檢查與 universal 封裝。等待下載程序成功退出後，獨立核對 ZIP／DMG 的 SHA-256、ZIP 完整性、DMG checksum 與 App strict codesign，全部通過；確認公開包為 ad-hoc、無本機簽署者識別，包含 x86_64 與 arm64，版本 0.2.4／build 6。[v0.2.4](https://github.com/Buffett111/OpenInsert/releases/tag/v0.2.4) 已公開為 prerelease。
 
 ## 0.2.3 收尾、後修、語言與放鍵修正
 

@@ -22,7 +22,7 @@ An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Nati
 - Stores the API key in macOS Keychain. No transcription history, analytics, developer backend, screenshots, OCR, or screen recording permission.
 - Accepts opaque Google API key strings, including dotted `AQ.` forms and keys longer than the old 256-character limit. Local checks catch unsafe paste characters before opening the microphone; Google still determines whether the key is authorized.
 
-There is no guarantee that every editor accepts automatic insertion. Secure fields are excluded. A missing Accessibility selection range limits cursor-change detection, and a paste request has no OS delivery receipt. Version 0.2.4 addresses an AX-success-without-visible-text report by using the standard paste path; successful insertion in the reported desktop chat editor still requires validation. Known terminal apps reject automatic multiline/tab insertion because terminals can execute pasted newlines; embedded terminals and unknown apps need separate testing.
+There is no guarantee that every editor accepts automatic insertion. Secure fields are excluded. A missing Accessibility selection range limits cursor-change detection, and a paste request has no OS delivery receipt. Version 0.2.4 addresses an AX-success-without-visible-text report by using the standard paste path. The user confirmed that the fixed test sentence now appears in the affected ChatGPT/Codex desktop input; this does not establish compatibility with every editor. Known terminal apps reject automatic multiline/tab insertion because terminals can execute pasted newlines; embedded terminals and unknown apps need separate testing.
 
 ## Download and setup
 
@@ -94,7 +94,7 @@ OpenInsert 0.2.4 是開源 macOS 語音輸入工具。預設 **Option + Space**�
 
 後修使用 minimal thinking，最多等待 8 秒，可按「略過後修，直接使用辨識結果」。略過或遇到逾時、網路、429／5xx 等暫時錯誤時，會明確告知改用已定稿 ASR，並經相同的焦點檢查後插入。取消整次工作、永久錯誤、被拒絕或不完整的回覆不觸發自動插入；未定稿預覽永遠不會升格使用。介面分開顯示 ASR 收尾與後修時間。
 
-0.2.4 統一使用剪貼簿加 Command-V，先透過 AX 驗證原輸入位置，再請求標準貼上。啟用剪貼簿恢復時，等待 800 ms 後只在仍持有同一剪貼簿版本時恢復。這項變更處理「AX 回報成功但編輯器沒有文字」的問題；狀態只表示已請求貼上，沒有系統收件證明，也不會再用 AX 寫入重試。ChatGPT 桌面編輯器的修正效果仍需實測，請先檢查目的欄位。
+0.2.4 統一使用剪貼簿加 Command-V，先透過 AX 驗證原輸入位置，再請求標準貼上。啟用剪貼簿恢復時，等待 800 ms 後只在仍持有同一剪貼簿版本時恢復。這項變更處理「AX 回報成功但編輯器沒有文字」的問題；狀態只表示已請求貼上，沒有系統收件證明，也不會再用 AX 寫入重試。使用者已確認固定測試句能出現在改名後的 ChatGPT／Codex 桌面輸入框；其他編輯器仍須個別驗證。
 
 浮動字幕會在其他 App 保持焦點時顯示即時文字、處理狀態與錯誤，不搶游標，也不攔截滑鼠點擊。「預覽浮動字幕」只顯示合成範例，不錄音、不連線、不插入。0.2.2 也修正含句點及較長金鑰被本機誤拒的問題；請完整貼上 Google 提供的 key。錄音前的檢查只確認能安全放入 HTTP header，不能證明 Google 已授權或額度足夠。
 
