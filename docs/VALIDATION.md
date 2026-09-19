@@ -11,6 +11,7 @@
 - **建置與安裝通過**：macOS 13／Swift 5 typecheck、原生及 arm64／x86_64 universal 建置、strict codesign 均通過；本地化 bundle 與系統權限提示資源已隨 App 封裝。已安裝 `/Applications/OpenInsert.app` 0.3.0／build 12，designated requirement 與舊版相同；先備份 0.2.8，沒有重設權限。
 - **原生 UI 驗證通過**：在已安裝 App 切換英文與繁體中文，介面即時更新；錄製 Control–Option–R 並按 Return 儲存，再錄製另一候選按 Escape，原組合保留。重開 App 後英文與自訂快捷鍵仍保留，最後恢復繁體中文與預設 Option–Space。UI 顯示既存 API key 已儲存、Google 同意及麥克風／輔助使用啟用；書寫偏好仍為繁體中文（台灣），輸出模式未變。沒有讀出金鑰內容。
 - **驗證界線**：本次沒有重新進行真實麥克風／Google 語音流程，也未逐一驗證自訂按鍵的實體長按／短按、各種鍵盤布局、所有系統保留組合與其他 macOS 版本。現有手勢狀態機測試通過，不代表全部實機組合已測。
+- **GitHub CI 與下載產物通過**：[Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35451994585)（commit `d2a765f`）的單元測試、合成 PCM 檢查、universal 建置及 artifact 上傳均成功。下載結束後獨立驗證 ZIP 完整性、App strict codesign、版本 0.3.0 與 x86_64／arm64 架構；包含中英兩套三張翻譯表及系統權限提示。公開 CI 包採 ad-hoc 簽章、無本機開發者識別，未執行或安裝該下載包；本機安裝使用保留原授權身分的建置。此版本尚未發布 Release。
 
 ## 0.2.8 綠色音量聲波（未發布）
 
