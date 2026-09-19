@@ -3,9 +3,9 @@ import ApplicationServices
 import Carbon
 import OpenInsertCore
 
-/// Inserts only into the field captured when dictation began. No text is read
-/// from other apps: Accessibility is used only for focus, role, selection range,
-/// and an optional selected-text write. Clipboard data never leaves this class.
+/// Requests one clipboard paste into the field captured when dictation began.
+/// No text is read from other apps: Accessibility checks focus, role, selection
+/// range and editable capabilities. Clipboard backups remain in memory.
 @MainActor
 final class TextInserter {
     private var activationObserver: NSObjectProtocol?
@@ -119,16 +119,8 @@ final class TextInserter {
             throw InsertionError.terminalControlText
         }
         try validate(target)
-        var settable = DarwinBoolean(false)
-        let status = AXUIElementIsAttributeSettable(target.element, kAXSelectedTextAttribute as CFString, &settable)
-        if status == .success, settable.boolValue {
-            // Do not fall back after a failed write: an app may have consumed it
-            // even when the Accessibility request times out.
-            let result = AXUIElementSetAttributeValue(target.element, kAXSelectedTextAttribute as CFString, text as CFString)
-            guard result == .success else { throw InsertionError.accessibilityWriteFailed(result.rawValue) }
-            return "Inserted into \(target.applicationName) using Accessibility."
-        }
-
+        // Some web editors acknowledge AXSelectedText writes without updating
+        // their document. Use the editor's normal paste path exactly once.
         let pasteboard = NSPasteboard.general
         let previous = restoreClipboard ? try ClipboardSnapshot(pasteboard) : nil
         try validate(target)
@@ -304,7 +296,6 @@ final class TextInserter {
         case accessibilityDenied, noInputField, secureField, targetChanged, selectionChanged
         case emptyText, modifierHeld, eventCreationFailed, clipboardChanged, clipboardUnreadable, clipboardWriteFailed
         case terminalControlText
-        case accessibilityWriteFailed(Int32)
         case accessibilityPreparing, unsupportedInputRole(String?)
         case accessibilityReadFailed(String, Int32), invalidAccessibilityValue(String)
 
@@ -341,8 +332,6 @@ final class TextInserter {
             case .clipboardChanged: return "The clipboard changed while preparing insertion. Your result is preserved for copying."
             case .clipboardUnreadable: return "Some clipboard content cannot be backed up. Copy your result manually to preserve it."
             case .clipboardWriteFailed: return "macOS could not prepare the clipboard for pasting."
-            case .accessibilityWriteFailed(let code):
-                return "The destination did not confirm text insertion (Accessibility \(code)). Check it before retrying to avoid duplicate text."
             }
         }
     }

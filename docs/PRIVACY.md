@@ -1,6 +1,6 @@
 # Privacy / 隱私
 
-This describes OpenInsert 0.2.3. OpenInsert has no product account, developer-operated server, analytics SDK, screenshot capture, OCR, or transcript-history database.
+This describes OpenInsert 0.2.4. OpenInsert has no product account, developer-operated server, analytics SDK, screenshot capture, OCR, or transcript-history database.
 
 ## English
 
@@ -20,7 +20,7 @@ The WebSocket and cleanup HTTP sessions are ephemeral, with URL cache, cookie st
 
 Running the installed executable with `--diagnose-pipeline` performs that same test, requires the key and consent to be set up beforehand, and exits after completion or a 70-second overall deadline. It prints a JSON status/timing report and the fixed synthetic sentence's result to standard output. It does not print credentials or ordinary user dictation. Terminal logging or redirecting stdout can retain this synthetic test report.
 
-**Other apps and clipboard:** Accessibility is used to inspect the focused app, element role/protection state, and selection range, and to insert text. OpenInsert does not read the text around your cursor or send accessibility metadata to Google. When direct insertion is unsupported, it temporarily writes the result to the system clipboard and requests Command-V. With clipboard restoration enabled, existing clipboard formats are read into memory solely for restoration and are never uploaded. Restoration occurs only if the clipboard has not changed. Copying a result manually intentionally leaves it on the clipboard. The destination app, clipboard managers and system clipboard features may retain or sync inserted/copied text under their own settings.
+**Other apps and clipboard:** Accessibility is used to validate the focused app, element role/protection state and selection range. A writable selected-text capability may be checked as evidence of editability, but selected text is not read and transcript text is not written through AX attributes. OpenInsert does not read the text around your cursor or send accessibility metadata to Google. Every automatic insertion temporarily writes the result to the system clipboard and requests standard Command-V. With clipboard restoration enabled, existing clipboard formats are read into memory solely for restoration and are never uploaded. After 800 ms, restoration occurs only if OpenInsert still owns the same clipboard version. A paste request has no OS delivery receipt; the app does not retry with an AX text write. With restoration disabled, the result stays on the clipboard. Copying a result manually also intentionally leaves it there. The destination app, clipboard managers and system clipboard features may retain or sync inserted/copied text under their own settings.
 
 With Accessibility already granted, OpenInsert can prepare a foreground Electron app's accessibility bridge. It verifies the actual Electron framework bundle, reads the application role and capability flag, and attempts to enable `AXManualAccessibility` once per process launch when supported and disabled. A three-second preparation window allows the bridge to become ready; other focus/selection failures retain their AX attribute and error code. This does not enumerate UI children, read surrounding text, or upload app/AX metadata.
 
@@ -50,7 +50,7 @@ WebSocket 與文字整理的 HTTP session 為 ephemeral，停用 URL cache、coo
 
 以 `--diagnose-pipeline` 啟動已安裝的執行檔會進行相同測試，須事先完成金鑰與同意設定，完成或超過 70 秒總期限後離開。stdout 會輸出 JSON 狀態、耗時及固定合成句的測試結果，不輸出憑證或一般使用者語音輸入內容。終端紀錄或 stdout 重新導向可能保存這份合成測試報告。
 
-**其他 App 與剪貼簿：** 輔助使用 API 只檢查目前 App、焦點元件角色／保護狀態、選取範圍並插入文字，不讀游標周圍的文字，也不將這些定位資訊送 Google。無法直接插入時，暫用系統剪貼簿並發出 Command-V。啟用恢復時，原剪貼簿資料只在記憶體內備份、不上傳，且僅在剪貼簿尚未改變時恢復。手動複製會把結果留在剪貼簿；目的 App、剪貼簿管理器及系統剪貼簿功能可能依各自設定保存或同步文字。
+**其他 App 與剪貼簿：** 輔助使用 API 檢查目前 App、焦點元件角色／保護狀態及選取範圍；可能查詢選取文字屬性是否可寫作為可編輯證據，但不讀選取文字、不透過 AX 屬性寫入逐字稿，也不讀游標周圍文字或將定位資訊送 Google。每次自動插入都暫用系統剪貼簿並請求標準 Command-V。啟用恢復時，原剪貼簿資料只在記憶體內備份、不上傳，等待 800 ms 後僅在仍持有同一剪貼簿版本時恢復。貼上沒有系統收件證明，不會再以 AX 寫入重試；停用恢復或手動複製會把結果留在剪貼簿。目的 App、剪貼簿管理器及系統剪貼簿功能可能依各自設定保存或同步文字。
 
 已有輔助使用授權時，OpenInsert 可初始化前景 Electron App 的原生 AX 介面：確認實際 Electron framework bundle，只讀 application role 與能力旗標；支援且尚未啟用時，每次程序啟動最多嘗試一次 `AXManualAccessibility` 設定，成功後保留 3 秒準備期間。其他焦點／選取範圍失敗保留 AX 屬性與錯誤代碼。這不列舉 UI 子元件、不讀周圍文字，也不上傳 App／AX 定位資訊。
 

@@ -1,6 +1,6 @@
 # OpenInsert 架構與取捨
 
-本文描述 0.2.3 原始碼的設計。平台為 macOS 13 以上，Swift Package 使用 Swift tools 5.9；程式本身不依賴第三方 package。編譯、單元測試、UI、真實 API 與跨應用插入屬不同驗證層，實際執行結果以 [VALIDATION.md](VALIDATION.md) 為準。
+本文描述 0.2.4 原始碼的設計。平台為 macOS 13 以上，Swift Package 使用 Swift tools 5.9；程式本身不依賴第三方 package。編譯、單元測試、UI、真實 API 與跨應用插入屬不同驗證層，實際執行結果以 [VALIDATION.md](VALIDATION.md) 為準。
 
 ## 使用流程
 
@@ -42,10 +42,7 @@ GeminiLiveTranscriber → WSS → gemini-3.5-transcribe-live
         │
         ├─ 原目標已改變／不可驗證 → 顯示結果供手動複製
         │
-        └─ 可驗證原目標 → AXSelectedText
-                              │ 不支援設定此屬性
-                              ▼
-                        剪貼簿 + Command-V
+        └─ AX 可驗證原目標 → 剪貼簿 + Command-V
                               │
                               ▼
                         等待 800 ms 後條件式恢復
@@ -62,7 +59,7 @@ GeminiLiveTranscriber → WSS → gemini-3.5-transcribe-live
 | `GlobalHotKey` | Carbon hotkey 為主；必要時以指定按鍵狀態補回遺失的 release | 不安裝 event tap，不讀取其他按鍵 |
 | `GeminiLiveTranscriber` | WebSocket setup、PCM 傳送、interim／final 解析、完成等待與取消 | 不把 interim 當定稿、不讀本機輸入欄位文字 |
 | `GeminiClient.polish` | 文字整理的 HTTP request、大小限制與回覆解析 | 不重送音訊、不讀剪貼簿／AX、不執行模型產生的指令 |
-| `TextInserter` | 目標捕捉、驗證、AX 寫入與剪貼簿交易 | 不從畫面收集上下文，不保證所有程式接受合成貼上 |
+| `TextInserter` | AX 目標捕捉與驗證、剪貼簿貼上與恢復交易 | 不以 AX 寫入逐字稿，不讀畫面上下文，不保證所有程式接受貼上 |
 | `SettingsStore` | UserDefaults 中的模型、語言、詞彙、模式、快捷鍵與同意設定 | 不保存 key 或逐字稿 |
 | `KeychainStore` | 儲存／刪除使用者 Gemini key | 不在 release 內提供共用 key |
 | `GeminiAPIKey` | 共用的本機 header 傳輸安全檢查 | 不判斷 key 類型、Google 授權或服務可用性 |
@@ -77,7 +74,7 @@ GeminiLiveTranscriber → WSS → gemini-3.5-transcribe-live
 
 HUD 在其他 App 保持焦點時可見，呈現現有 controller 的狀態／未定稿文字／錯誤，不靠切換前景視窗更新。它不成為 key window，也不接收點擊。設定中的「預覽浮動字幕」使用合成文字，不啟動麥克風、網路或文字插入；此預覽只能檢查外觀，不能當作真實 ASR 驗證。
 
-錄音與網路處理可取消。取消停止麥克風、釋放佇列並取消 WebSocket／HTTP；錄音期間已送往 Google 的 bytes 無法收回。停止錄音時，先排空已接受的錄音 buffer 與重取樣尾端，再傳送 `activityEnd`，避免結尾音節被本機提早截斷。插入開始後不提供「撤回貼上」式取消，因為文字可能已由目標接收；剪貼簿 fallback 的 800 ms 恢復等待也不因 task cancellation 提早結束。
+錄音與網路處理可取消。取消停止麥克風、釋放佇列並取消 WebSocket／HTTP；錄音期間已送往 Google 的 bytes 無法收回。停止錄音時，先排空已接受的錄音 buffer 與重取樣尾端，再傳送 `activityEnd`，避免結尾音節被本機提早截斷。插入開始後不提供「撤回貼上」式取消，因為文字可能已由目標接收；剪貼簿貼上的 800 ms 恢復等待也不因 task cancellation 提早結束。
 
 如果此時要求正常結束 App，App delegate 會延後終止，等插入及剪貼簿恢復處理完成後才離開；強制終止或程序崩潰仍不受此流程保護。
 
@@ -125,26 +122,26 @@ HTTP 整理沿用序列化 request 18,000,000 bytes、response 1,000,000 bytes�
 
 已有 Accessibility 授權時，`TextInserter` 會在前景 App 切換及捕捉目標前，檢查實際 bundle 是否包含有效的 `Electron Framework.framework`。確認為 Electron 後，只讀 application role 及 `AXManualAccessibility` 能力／啟用旗標；旗標可寫且尚未啟用時，每次程序啟動最多嘗試設定一次，協助目標建立原生 AX 介面。成功設定後記錄 3 秒準備期間，不阻塞主執行緒等待；此期間僅將符合未就緒情況的焦點缺漏／不支援錯誤顯示為「準備中」。一般焦點與選取範圍讀取會保留實際 AX 屬性名稱及錯誤代碼，權限或安全欄位錯誤不改寫成準備中。這個初始化不列舉 UI 子元件、不讀游標周圍文字，也不上傳 bundle／AX 資訊。
 
-錄音前記下前景 PID、focused AX element、可取得的選取範圍及應用名稱／bundle ID。拒絕自己的視窗、已停用控制項、密碼／受保護欄位；只接受已知文字 role 或可設定 `AXSelectedText` 的元件。macOS Secure Event Input 啟用時也一律拒絕自動插入，涵蓋部分仍暴露一般文字 role 的終端密碼提示。這些是本機插入定位資訊，不送 Google。
+錄音前記下前景 PID、focused AX element、可取得的選取範圍及應用名稱／bundle ID。拒絕自己的視窗、已停用控制項、密碼／受保護欄位；只接受已知文字 role 或回報 `AXSelectedText` 可設定的元件；後者只查詢可寫能力作為可編輯證據，不讀取選取文字，也不設定該屬性。macOS Secure Event Input 啟用時也一律拒絕自動插入，涵蓋部分仍暴露一般文字 role 的終端密碼提示。這些是本機插入定位資訊，不送 Google。
 
 插入前重新確認 PID、元件身分與選取範圍相同，避免等待辨識時換 app、換欄位或移動游標造成誤貼。若 AX 未提供 range，前後同為 `nil` 不能偵測同元件內的游標移動。焦點檢查與實際事件派送亦非作業系統原子交易；檢查後瞬間切換仍是殘餘競態。目標應用可自動改內容而不改 range，程式也無法在不讀全文的前提下完整辨識此情況。
 
-### 優先 AX，必要時剪貼簿
+### 標準剪貼簿貼上
 
-若 `AXSelectedText` 可設定，直接寫入。回報失敗時**不自動再貼一次**：timeout 可能發生在目標已消費寫入之後，重試會重複文字。使用者保留最後結果，可先檢查目標再決定手動複製。
+0.2.4 統一以剪貼簿加 Command-V 插入，不再透過 `AXSelectedText` 寫入逐字稿。變更源自使用者回報：舊版在 TextEdit 可成功，但桌面聊天編輯器即使 AX setter 回報成功也沒有出現文字；這只能證明兩個目標行為不同，不能將 AX 成功碼當成可見文字已更新的收件證明。新貼上方式在該編輯器的成效仍需實測。
 
-只有不支援該寫入屬性時才採剪貼簿 fallback。啟用恢復時完整備份所有目前可取得的 pasteboard item/type 資料；任一格式無法讀取就停止，避免宣稱已備份但遺失資料。備份只在記憶體使用。
+啟用恢復時完整備份所有目前可取得的 pasteboard item/type 資料；任一格式無法讀取就停止，避免宣稱已備份但遺失資料。備份只在記憶體使用。每次插入只請求一次標準貼上，不在貼上後以 AX 寫入或自動重貼補救，避免文字已接收卻被重複插入。使用者保留最後結果，可先檢查目標再決定手動複製。
 
 送出貼上前確認使用者已放開 Command／Control／Option／Shift，以免修飾鍵混入。寫入剪貼簿後再驗證目標與 `changeCount`，以 CGEvent 派送 Command-V。等待 800 ms，只有剪貼簿仍為自己的版本才恢復；若使用者期間複製新內容就保持新內容。停用恢復時，結果會留在剪貼簿。
 
-這個路徑回報「Paste requested」，不宣稱已讀回確認目標文字。800 ms 是固定折衷，極忙的 App 可能更晚讀取，AX 也可能缺乏完整實作。故必須保留最後結果、手動複製與實際 app 相容性矩陣。
+這個路徑回報「Paste requested」，不宣稱已讀回確認目標文字。800 ms 是固定折衷，極忙的 App 可能更晚讀取；AX 只提供目標定位資訊，不能證明目的 App 已消費貼上。故必須保留最後結果、手動複製與實際 app 相容性矩陣。
 
-已知終端的 bundle ID 或名稱會觸發額外檢查，拒絕自動插入含換行或 tab 的文字，因為貼上也可能執行命令。這適用於 AX 及剪貼簿路徑，但無法可靠辨識一般編輯器內的整合終端，名稱偵測也可能漏判。OpenInsert 不模擬 Enter，也沒有自動送出功能；這不能保證目的 App 不因收到文字、換行或自訂事件而自行提交。受限結果保留供使用者檢查後手動複製。
+已知終端的 bundle ID 或名稱會觸發額外檢查，拒絕自動插入含換行或 tab 的文字，因為貼上也可能執行命令。這在請求剪貼簿貼上前檢查，但無法可靠辨識一般編輯器內的整合終端，名稱偵測也可能漏判。OpenInsert 不模擬 Enter，也沒有自動送出功能；這不能保證目的 App 不因收到文字、換行或自訂事件而自行提交。受限結果保留供使用者檢查後手動複製。
 
 ## 權限與散布
 
 - **Microphone：** 只在使用者明確開始或按權限按鈕時請求，錄音在目前程序中進行。
-- **Accessibility：** 用於定位可編輯欄位與文字插入；不是 OCR 或畫面理解權限。
+- **Accessibility：** 用於驗證可編輯欄位、必要的 Electron AX 初始化及派送標準貼上；不以 AX 屬性寫入逐字稿，不作 OCR 或畫面理解。
 - **不要求 Screen Recording：** 沒有截圖、OCR、螢幕錄影或系統音效錄音管線。
 - **快捷鍵：** 註冊特定 Carbon hotkey，不需要為全鍵盤監聽增加 Input Monitoring。
 - **Keychain：** generic password，service `org.openinsert.OpenInsert`、account `gemini-api-key`；新增時為 `WhenUnlockedThisDeviceOnly`。
@@ -157,6 +154,6 @@ HTTP 整理沿用序列化 request 18,000,000 bytes、response 1,000,000 bytes�
 
 測試應分三層：可注入 HTTP transport 驗證整理 request／response；可注入 WebSocket transport 驗證 setup、PCM 傳送、interim／final、out-of-order 訊息、安靜等待、deadline 與取消；原生音訊測試驗證重取樣、尾端排空及 backpressure。0.1 的 19 個 HTTP 核心測試不能視為新 Live 管線已驗證。實際執行數目與結果由 [VALIDATION.md](VALIDATION.md) 記錄。
 
-原生麥克風權限、TCC、按住／切換快捷鍵、真實語音品質、AX 寫入、剪貼簿競態、瀏覽器／Electron／終端／遠端桌面與乾淨安裝，都需要額外整合測試。建議矩陣在 [SURVEY.md](SURVEY.md)。沒有實測數據前，不承諾特定辨識率、延遲、CPU／RAM 或所有 App 支援。
+原生麥克風權限、TCC、按住／切換快捷鍵、真實語音品質、AX 定位與標準貼上、剪貼簿競態、瀏覽器／Electron／終端／遠端桌面與乾淨安裝，都需要額外整合測試。建議矩陣在 [SURVEY.md](SURVEY.md)。沒有實測數據前，不承諾特定辨識率、延遲、CPU／RAM 或所有 App 支援。
 
 後續改進依使用證據排序：真實 Live 完成訊號與繁中語料回歸、可調整貼上恢復延遲、更多目的 App 相容性、麥克風選擇、本地 Whisper provider，再評估跨平台。不為尚未完成的項目在產品 UI 顯示已支援。

@@ -1,6 +1,17 @@
 # 驗證紀錄
 
-記錄日期：2026-09-19；目前版本：0.2.3。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+記錄日期：2026-09-19；目前版本：0.2.4。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+
+## 0.2.4 編輯器貼上相容性
+
+使用者手動確認 0.2.3 可以插入 TextEdit，但不能插入其改名為 ChatGPT 的 Codex 桌面版。當時 OpenInsert 顯示 `Inserted into ChatGPT using Accessibility.`，與使用者未見文字的結果不一致：AX setter 回傳成功不能作為編輯器已更新的證據。
+
+0.2.4 改用剪貼簿與標準 Command-V 作為插入路徑，不再直接設定 `AXSelectedText`；保留既有焦點、前景程序、選取範圍、密碼欄與剪貼簿所有權檢查。僅送出一次貼上，不在已派送後重試；OS 沒有貼上完成回條，因此訊息說明請求已發出並請使用者檢查目的地。
+
+- 完整 macOS 13／Swift 5 typecheck、arm64／x86_64 universal 建置與 strict codesign 驗證通過。
+- 已更新 `/Applications/OpenInsert.app`；原生 UI 確認版本 0.2.4，API key 已儲存、Google 同意保留，麥克風與輔助使用均顯示「已啟用」，沒有快捷鍵註冊錯誤。
+- 0.2.3 與 0.2.4 的本機 designated requirement 相同；本次更新未重設任何權限。先前待確認的麥克風重設已不需要，沒有執行。
+- 改名後的 ChatGPT／Codex 桌面版固定文字插入仍待使用者手動確認；不能把舊版 TextEdit 成功直接當作新版或 ChatGPT 相容性通過。
 
 ## 0.2.3 收尾、後修、語言與放鍵修正
 
@@ -10,7 +21,7 @@
 - 實際 XCTest **88／88 通過**（後修／HTTP 30、Live 28、語言 9、原有手勢 6、金鑰 4、放鍵 recovery 7、輔助介面準備狀態 4）。涵蓋 final-only 收尾、未解 interim 不完成、metadata-only 不清除 interim、8 秒總期限的縮時取消測試、晚到回覆、語言遷移、放鍵順序及無法判定時的取消。
 - 原生／universal 編譯與 macOS 13 typecheck 通過。初期 UI 自動化逾時時，使用者仍能看見主畫面，程序取樣也顯示主執行緒正常等待事件；解鎖後已重新取得原生 UI 狀態，不能把先前工具逾時說成 App 當機。
 - 輔助使用授權已恢復：系統設定啟用目前安裝版本後，App 重新查詢顯示「已啟用」，正常重啟後仍維持。另發現專案 `dist` 副本與 `/Applications` 副本同時執行；只關閉前者並重啟後者，`eventHotKeyExistsErr (-9878)` 消失。此結果確認註冊成功，不等於實體長按／短按已實測。
-- 0.2.3 的固定文字插入測試尚未通過：自動化操作新的 TextEdit 空白文件時，App 回報焦點角色為 `AXWindow` 並拒絕插入；可見游標不足以確定測試截止當下的跨程序焦點，仍需手動測試區分操作時序與相容性。Codex 插入也仍待使用者驗證。麥克風系統開關為 on、App 判定未啟用；尚未重設或錄音，不能宣稱完整語音流程成功。
+- 自動化操作新的 TextEdit 空白文件時曾讀到 `AXWindow` 而拒絕插入；後續使用者手動確認 TextEdit 插入成功，但其改名為 ChatGPT 的 Codex 桌面版仍沒有文字，與 AX setter 成功回報不一致。此差異是 0.2.4 調整插入路徑的依據，不是放寬焦點檢查的理由。麥克風系統開關為 on、App 判定未啟用；尚未重設或錄音，不能宣稱完整語音流程成功。
 
 本機改以既有 Apple Development 憑證簽署，指定需求依 app identifier 與簽章憑證辨識；兩次包含程式修改的重建之 designated requirement 相同且不含 cdhash。最終版已安裝至 `/Applications/OpenInsert.app`，strict codesign 驗證通過；依使用者先前同意，僅清除本 App 舊 Accessibility 紀錄並重新授權，未重設麥克風。這不是 Developer ID 或 notarization；公開 CI 仍不含本機憑證、採 ad-hoc community build。
 

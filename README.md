@@ -4,7 +4,7 @@
 
 An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Native Swift, no third-party package dependencies, no OpenInsert account, no screen capture. Designed for Traditional Chinese and spoken English together; language preferences are editable.
 
-**Early release 0.2.3:** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
+**Early release 0.2.4:** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
 
 [繁體中文說明](#繁體中文快速開始) · [Detailed survey](docs/SURVEY.md) · [Dup model evidence](docs/DUP_MODELS.md) · [Architecture](docs/ARCHITECTURE.md) · [Privacy](docs/PRIVACY.md)
 
@@ -16,13 +16,13 @@ An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Nati
 - Shows live previews, processing status, and errors in a floating panel while you keep typing in another app. The panel does not activate OpenInsert or intercept clicks. **Unfinalized previews are never inserted.**
 - Offers verbatim output or a separate, text-only cleanup request to **Gemini 3.5 Flash Lite**, using minimal thinking with an eight-second total deadline. You can skip cleanup while waiting. A skip or temporary cleanup failure uses the finalized ASR text and reports the fallback; cancellation, invalid/blocked responses, and permanent errors stop automatic insertion.
 - Provides a writing-language menu: Traditional Chinese (Taiwan), automatic, Simplified Chinese, English, Japanese, Korean, or custom. ASR still detects spoken languages automatically; mixed-language speech is preserved. Chinese character conversion happens locally, including live previews; the menu does not request translation.
-- Inserts through Accessibility when supported, otherwise requests a clipboard paste. Never synthesizes a Return key.
+- Uses Accessibility to validate the input target, then requests a standard **Command-V clipboard paste** in every supported app. It does not write transcript text through AX attributes or synthesize Return.
 - Checks the original app, input element, and available selection metadata before insertion. Keeps the result for manual copy when the target changes.
 - Restores all readable clipboard formats only if the clipboard has not changed since insertion.
 - Stores the API key in macOS Keychain. No transcription history, analytics, developer backend, screenshots, OCR, or screen recording permission.
 - Accepts opaque Google API key strings, including dotted `AQ.` forms and keys longer than the old 256-character limit. Local checks catch unsafe paste characters before opening the microphone; Google still determines whether the key is authorized.
 
-There is no guarantee that every editor accepts automatic insertion. Secure fields are excluded. A missing Accessibility selection range limits cursor-change detection, and clipboard fallback has no OS delivery receipt. Known terminal apps reject automatic multiline/tab insertion because terminals can execute pasted newlines; embedded terminals and unknown apps need separate testing.
+There is no guarantee that every editor accepts automatic insertion. Secure fields are excluded. A missing Accessibility selection range limits cursor-change detection, and a paste request has no OS delivery receipt. Version 0.2.4 addresses an AX-success-without-visible-text report by using the standard paste path; successful insertion in the reported desktop chat editor still requires validation. Known terminal apps reject automatic multiline/tab insertion because terminals can execute pasted newlines; embedded terminals and unknown apps need separate testing.
 
 ## Download and setup
 
@@ -88,11 +88,13 @@ Build scripts use project-local caches. In an environment that forbids nested `s
 
 ## 繁體中文快速開始
 
-OpenInsert 0.2.3 是開源 macOS 語音輸入工具。預設 **Option + Space**：按住至少 0.35 秒說話、放開完成；也可短按開始、再按一次結束。說話時透過你自己的 Gemini API key，將音訊直接串流到 **Gemini 3.5 Transcribe Live**。選擇輕度整理時，確定的逐字稿再交給 **Gemini 3.5 Flash Lite**；逐字模式跳過這一步。
+OpenInsert 0.2.4 是開源 macOS 語音輸入工具。預設 **Option + Space**：按住至少 0.35 秒說話、放開完成；也可短按開始、再按一次結束。說話時透過你自己的 Gemini API key，將音訊直接串流到 **Gemini 3.5 Transcribe Live**。選擇輕度整理時，確定的逐字稿再交給 **Gemini 3.5 Flash Lite**；逐字模式跳過這一步。
 
 第一次使用請在「連線與權限」儲存 API key、同意即時音訊串流與可選文字整理、開啟麥克風與輔助使用權限，並先結束 Dup 避免快捷鍵衝突。由 0.1 升級需要重新同意。「文字語言偏好」可選繁體中文（台灣）、自動、簡體中文、English、日本語、韓語或自訂。ASR 仍自動偵測語言；繁／簡選項在本機轉換中文字形（含即時字幕），保留中英混用，不要求翻譯。
 
 後修使用 minimal thinking，最多等待 8 秒，可按「略過後修，直接使用辨識結果」。略過或遇到逾時、網路、429／5xx 等暫時錯誤時，會明確告知改用已定稿 ASR，並經相同的焦點檢查後插入。取消整次工作、永久錯誤、被拒絕或不完整的回覆不觸發自動插入；未定稿預覽永遠不會升格使用。介面分開顯示 ASR 收尾與後修時間。
+
+0.2.4 統一使用剪貼簿加 Command-V，先透過 AX 驗證原輸入位置，再請求標準貼上。啟用剪貼簿恢復時，等待 800 ms 後只在仍持有同一剪貼簿版本時恢復。這項變更處理「AX 回報成功但編輯器沒有文字」的問題；狀態只表示已請求貼上，沒有系統收件證明，也不會再用 AX 寫入重試。ChatGPT 桌面編輯器的修正效果仍需實測，請先檢查目的欄位。
 
 浮動字幕會在其他 App 保持焦點時顯示即時文字、處理狀態與錯誤，不搶游標，也不攔截滑鼠點擊。「預覽浮動字幕」只顯示合成範例，不錄音、不連線、不插入。0.2.2 也修正含句點及較長金鑰被本機誤拒的問題；請完整貼上 Google 提供的 key。錄音前的檢查只確認能安全放入 HTTP header，不能證明 Google 已授權或額度足夠。
 

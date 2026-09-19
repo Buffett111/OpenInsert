@@ -1,4 +1,4 @@
-OpenInsert 0.2.3 — macOS 13 or later
+OpenInsert 0.2.4 — macOS 13 or later
 
 1. Drag OpenInsert.app to Applications.
 2. Open it and save your own Gemini API key in Connection & Permissions.
@@ -86,6 +86,16 @@ may still require permission again. This is not Developer ID signing or notariza
 Do not publish personal certificates, emails, fingerprints or private keys.
 Public CI has no local identity file and retains its ad-hoc default.
 
+Version 0.2.4 validates the original input target through Accessibility, then uses
+the clipboard and standard Command-V for every automatic insertion. It does not
+write transcript text through AX attributes. With restoration enabled, readable
+clipboard formats are backed up in memory and restored after 800 ms only if the
+clipboard still has the app-owned version. With restoration disabled, the result
+stays on the clipboard. No clipboard data is uploaded.
+
+The status confirms only that paste was requested, not that the editor accepted it.
+There is no automatic AX write or second paste retry. The reported desktop chat
+editor behavior still requires validation; check the field before manually copying.
 Automatic insertion does not work in every app. It never presses Return; destination
 apps can still react to inserted text. Results remain available for manual copy if
 the destination changes or refuses input. See docs/VALIDATION.md in the source
