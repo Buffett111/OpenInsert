@@ -6,6 +6,8 @@ An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Buil
 
 **Early release 0.2.7:** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
 
+The 0.2.8 source adds a green waveform driven by microphone volume, with a separate transcript area and no persistent recording instructions in the overlay. Published downloads below remain 0.2.7 until the next release.
+
 [繁體中文說明](#繁體中文快速開始) · [Detailed survey](docs/SURVEY.md) · [Dup model evidence](docs/DUP_MODELS.md) · [Architecture](docs/ARCHITECTURE.md) · [Privacy](docs/PRIVACY.md)
 
 ## What it does

@@ -119,7 +119,7 @@ struct MainView: View {
     }
     private var preferences: some View {
         VStack(alignment: .leading, spacing: 18) {
-            setting("即時字幕", detail: "錄音時會在螢幕下方顯示浮動逐字稿，不會切換 App 或搶走游標。預覽不會錄音或連線。") {
+            setting("即時字幕", detail: "綠色聲波隨麥克風音量起伏，逐字稿顯示在下方，不會切換 App 或搶走游標。預覽使用模擬音量，不會錄音或連線。") {
                 Button("預覽浮動字幕") { onPreviewHUD() }
             }
             setting("全域快捷鍵", detail: "預設 Option + Space。請先結束占用同一快捷鍵的 App；若快捷鍵已被占用會顯示錯誤。") {

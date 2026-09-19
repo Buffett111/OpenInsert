@@ -58,11 +58,11 @@ final class DictationHUD {
     func showPreview() {
         guard !controller.busy else { return }
         show(DictationHUDContent(
-            title: "即時預覽顯示測試", message: "這只是畫面預覽，沒有錄音或連線。",
+            title: "聲波與字幕預覽", message: "",
             transcript: "這是一段繁體中文與 English 混合的示範文字。說話時，辨識中的文字會顯示在這裡。",
             elapsed: 0, level: 0.35, recording: false, connected: false,
             failure: false, preview: true, showTranscript: true
-        ), dismissAfter: 4)
+        ), dismissAfter: 8)
     }
 
     func close() {
@@ -128,7 +128,7 @@ final class DictationHUD {
         let revision = displayRevision
         dismissWork?.cancel()
         dismissWork = nil
-        model.content = content
+        model.update(content)
         positionPanel()
         // Deliberately neither makeKeyAndOrderFront nor NSApp.activate.
         panel.orderFrontRegardless()
@@ -177,10 +177,81 @@ private struct DictationHUDContent {
 @MainActor
 private final class DictationHUDModel: ObservableObject {
     @Published var content = DictationHUDContent()
+    @Published private(set) var levels = Array(repeating: CGFloat.zero, count: DictationWaveform.barCount)
+    private var sampledElapsed: TimeInterval = -1
+
+    func update(_ next: DictationHUDContent) {
+        if !next.recording || !content.recording || next.elapsed < content.elapsed {
+            levels = Array(repeating: 0, count: DictationWaveform.barCount)
+            sampledElapsed = -1
+        }
+        // The controller already samples real microphone RMS every 100 ms.
+        // Advance on elapsed time, including equal levels and silence; transcript
+        // publications must not add extra samples or speed up the waveform.
+        if next.recording && (sampledElapsed < 0 || next.elapsed - sampledElapsed >= 0.08) {
+            levels.removeFirst()
+            levels.append(DictationWaveform.amplitude(next.level))
+            sampledElapsed = next.elapsed
+        }
+        content = next
+    }
+}
+
+private enum DictationWaveform {
+    static let barCount = 31
+
+    static func amplitude(_ rms: Float) -> CGFloat {
+        guard rms.isFinite, rms > 0 else { return 0 }
+        // Display gain only: leave recorded/transmitted PCM untouched. A dB
+        // scale makes ordinary speech visible without treating silence as audio.
+        let decibels = 20 * log10(Double(min(1, rms)))
+        return CGFloat(min(1, max(0, (decibels + 55) / 43)))
+    }
+}
+
+private struct DictationWaveformView: View {
+    let levels: [CGFloat]
+    let animate: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 4) {
+            ForEach(levels.indices, id: \.self) { index in
+                Capsule()
+                    .fill(LinearGradient(colors: [Color(red: 0.32, green: 0.88, blue: 0.60),
+                                                   Color(red: 0.10, green: 0.66, blue: 0.40)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(width: 5, height: 3 + 25 * levels[index])
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(height: 28)
+        .animation(animate ? .linear(duration: 0.1) : nil, value: levels)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("麥克風音量")
+        .accessibilityValue("\(Int((levels.last ?? 0) * 100))%")
+    }
+}
+
+/// Synthetic motion is exclusive to the explicitly labelled, microphone-free preview.
+private struct DictationWaveformPreview: View {
+    let reduceMotion: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.1, paused: reduceMotion)) { context in
+            let time = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate
+            let levels = (0..<DictationWaveform.barCount).map { index in
+                let t = time - Double(DictationWaveform.barCount - index - 1) * 0.1
+                return CGFloat(pow(max(0, sin(t * 2.8)), 2) * (0.4 + 0.6 * abs(sin(t * 7.3))))
+            }
+            DictationWaveformView(levels: levels, animate: !reduceMotion)
+                .accessibilityLabel("模擬音量")
+        }
+    }
 }
 
 private struct DictationHUDView: View {
     @ObservedObject var model: DictationHUDModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let accent = Color(red: 0.20, green: 0.64, blue: 0.48)
 
     var body: some View {
@@ -197,22 +268,28 @@ private struct DictationHUDView: View {
                     Text("OpenInsert").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            if content.recording || content.preview {
-                ProgressView(value: Double(min(1, max(0, content.level))))
-                    .progressViewStyle(.linear).tint(accent)
+            if content.preview {
+                DictationWaveformPreview(reduceMotion: reduceMotion)
+            } else if content.recording {
+                DictationWaveformView(levels: model.levels, animate: !reduceMotion)
             }
-            Text(content.message).font(.caption).foregroundStyle(.secondary)
-                .lineLimit(content.failure || content.copied ? 4 : 2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Keep recovery notices and the insertion-test countdown, but reserve
+            // the dictation area for sound and words instead of shortcut/debug tips.
+            if content.failure || content.copied || (!content.showTranscript && !content.message.isEmpty) {
+                Text(content.message).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(content.failure || content.copied ? 4 : 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if !content.failure && content.showTranscript {
                 HStack {
-                    Text("即時預覽 · 未定稿")
+                    Text(content.preview ? "模擬音量 · 未啟動麥克風" : "即時轉錄")
                     Spacer()
-                    if content.recording { Text(content.connected ? "Live 已連線" : "正在連線") }
+                    if content.recording { Text(content.connected ? "未定稿" : "正在連線") }
                 }.font(.caption2).foregroundStyle(.secondary)
                 Text(content.transcript.isEmpty ? "等待辨識文字…" : String(content.transcript.suffix(420)))
                     .font(.callout).lineLimit(4).truncationMode(.head)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
             }
             Spacer(minLength: 0)
         }
