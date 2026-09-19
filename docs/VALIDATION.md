@@ -7,7 +7,11 @@
 - 實際 XCTest **56／56 通過**：原有 46 個 Live／REST 測試，加上 4 個金鑰與 6 個快捷鍵測試。確認含點號、超過舊 256 字元限制的合成金鑰可安全置於 header，無效輸入得到不含金鑰的具體錯誤；沒有讀取使用者金鑰來判斷格式。
 - 快捷鍵測試涵蓋短按開始／再次按下停止、長按放開停止、延遲派送仍以原始事件時間計算、準備期間停止、busy 與 reset。這些是手勢狀態機測試，實體按鍵及真實錄音仍需 UI 驗證。
 - 完整 app 原生建置與 universal 封裝成功。兩個架構的最低版本均為 macOS 13.0；codesign strict verification、ZIP 完整性、DMG checksum 及 SHA-256 驗證通過。仍為 ad-hoc 簽章，尚未公證。
-- 浮動字幕及不錄音連線檢查已實作；synthetic preview 不能證明真實音訊辨識，Live setup 成功也不能證明錄音、辨識品質或插入。
+- 已安裝 `/Applications/OpenInsert.app` 0.2.2，UI 確認既存金鑰、Google 同意、兩個模型與 Option + Space 設定保留。經先前同意重設並重新授權本 App 的 Accessibility，App 重新查詢後顯示已啟用。
+- **真實 Google Live setup 通過**：從 App 點選「檢查 Gemini 連線（不錄音）」，既存 Keychain 金鑰成功連線 `gemini-3.5-transcribe-live`。UI 顯示 `Gemini Live 連線成功`。未開麥克風、未傳送音訊／自訂詞彙，也沒有讀出金鑰內容；此結果只支持當時連線與模型 setup。
+- 浮動字幕按鈕已從原生 UI 觸發；自動化目前只能擷取主視窗，尚未取得浮動 panel 的可視證據，不能宣稱真實即時字幕已驗證。更新後麥克風權限需要重新授權，真正錄音、兩種實體按鍵手勢與 ASR／插入整合仍待使用者測試。
+
+0.2.2 的 GitHub macOS 15 [Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35431003101) 與 [Release](https://github.com/Buffett111/OpenInsert/actions/runs/35431126641) 均通過（commit `8c6e3e1`），包含完整 Xcode 的 `swift test`、合成 PCM 檢查與 universal 建置。[v0.2.2](https://github.com/Buffett111/OpenInsert/releases/tag/v0.2.2) 已公開為未公證的 prerelease，附 ZIP、DMG 與 SHA-256。
 
 使用者回報「麥克風約兩秒後消失」時，0.2.1 UI 顯示本機 `invalidConfiguration` 訊息，且麥克風與輔助使用仍為已啟用。已確認舊版金鑰 regex 有誤擋路徑；尚不能僅憑此訊息確定使用者個別故障原因。0.2.2 改為開啟麥克風前執行具體 preflight，並加入可由 App 自行使用既存 Keychain 金鑰、完全不開麥克風的 Live 連線檢查。
 
