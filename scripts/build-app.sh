@@ -35,6 +35,19 @@ else
   cp ".build/OpenInsert-$architecture" "$app/Contents/MacOS/OpenInsert"
 fi
 cp Resources/Info.plist "$app/Contents/Info.plist"
+# Bundle.module must also resolve after moving the app away from the checkout.
+# Both architectures carry identical language resources; binary_dir is the last
+# successful build's directory. Fail packaging instead of shipping missing text.
+resource_bundle="$binary_dir/OpenInsert_OpenInsertCore.bundle"
+if [ ! -d "$resource_bundle" ]; then
+  echo "Missing localization resource bundle: $resource_bundle" >&2
+  exit 1
+fi
+cp -R "$resource_bundle" "$app/Contents/Resources/"
+for localization in Resources/*.lproj; do
+  [ -d "$localization" ] || continue
+  cp -R "$localization" "$app/Contents/Resources/"
+done
 swift scripts/make-icon.swift
 iconutil -c icns .build/AppIcon.iconset -o "$app/Contents/Resources/AppIcon.icns"
 identity="${CODE_SIGN_IDENTITY:-}"

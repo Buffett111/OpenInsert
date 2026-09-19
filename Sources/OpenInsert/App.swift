@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Combine
+import OpenInsertCore
 
 @main struct OpenInsertApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
@@ -31,13 +32,19 @@ import Combine
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
         menu.autoenablesItems = false
-        menu.addItem(withTitle: "開啟 OpenInsert…", action: #selector(showWindow), keyEquivalent: "")
-        menu.addItem(withTitle: "停止錄音", action: #selector(stopRecording), keyEquivalent: "")
-        menu.addItem(withTitle: "取消目前操作", action: #selector(cancelOperation), keyEquivalent: "")
+        menu.addItem(withTitle: settings.localizer.text("menu.open", table: "Status"), action: #selector(showWindow), keyEquivalent: "")
+        menu.addItem(withTitle: settings.localizer.text("menu.stop", table: "Status"), action: #selector(stopRecording), keyEquivalent: "")
+        menu.addItem(withTitle: settings.localizer.text("menu.cancel", table: "Status"), action: #selector(cancelOperation), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "結束 OpenInsert", action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(withTitle: settings.localizer.text("menu.quit", table: "Status"), action: #selector(quit), keyEquivalent: "q")
         menu.items.forEach { $0.target = self }
         statusItem.menu = menu
+        settings.$interfaceLanguage.removeDuplicates().sink { language in
+            let localizer = AppLocalizer(language: language)
+            for (index, key) in [(0, "menu.open"), (1, "menu.stop"), (2, "menu.cancel"), (4, "menu.quit")] {
+                menu.items[index].title = localizer.text(key, table: "Status")
+            }
+        }.store(in: &subscriptions)
         controller.$phase.sink { [weak self] phase in
             guard let self else { return }
             let recording = phase == .recording
@@ -54,7 +61,7 @@ import Combine
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard self.controller.hasAPIKey, self.controller.settings.cloudConsent else {
-                    self.printDiagnostic(success: false, status: "Save an API key and consent to Google in OpenInsert first.")
+                    self.printDiagnostic(success: false, status: self.controller.settings.localizer.text("cli.setup", table: "Status"))
                     NSApp.terminate(nil)
                     return
                 }
@@ -66,7 +73,7 @@ import Combine
                 let expired = self.controller.busy
                 if expired { self.controller.cancel() }
                 self.printDiagnostic(success: !expired && self.controller.lastFailure == nil,
-                    status: expired ? "Diagnostic exceeded its overall deadline." : self.controller.message)
+                    status: expired ? self.controller.settings.localizer.text("cli.timeout", table: "Status") : self.controller.message)
                 NSApp.terminate(nil)
             }
         }

@@ -11,8 +11,8 @@ final class TextInserter {
     private var activationObserver: NSObjectProtocol?
     private var bridgePreparation = AccessibilityBridgePreparation()
     /// Only the latest preparation's metadata and AX status, never UI content.
-    private(set) var lastPreparationDiagnostic: String?
-    private var lastAttemptDiagnostic: (processID: pid_t, identity: String, message: String)?
+    private(set) var lastPreparationDiagnostic: LocalizedMessage?
+    private var lastAttemptDiagnostic: (processID: pid_t, identity: String, message: LocalizedMessage)?
 
     init() {
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -38,7 +38,7 @@ final class TextInserter {
 
     private func prepareAccessibilityBridge(_ application: NSRunningApplication) {
         guard let bundleURL = application.bundleURL else {
-            lastPreparationDiagnostic = "AX 初始化：無 App bundle metadata。"
+            lastPreparationDiagnostic = LocalizedMessage("ax.noMetadata")
             return
         }
         let pid = application.processIdentifier
@@ -48,9 +48,9 @@ final class TextInserter {
         let metadata = "App=\(bundleIdentifier)，class=\(principalClass ?? "unknown")"
         guard !bridgePreparation.hasAttempted(processID: pid, identity: identity) else {
             if let last = lastAttemptDiagnostic, last.processID == pid, last.identity == identity {
-                lastPreparationDiagnostic = last.message + "（本次 App 啟動不重送）"
+                lastPreparationDiagnostic = LocalizedMessage("ax.noRepeat", values: [last.message])
             } else {
-                lastPreparationDiagnostic = "AX 初始化：\(metadata)；本次 App 啟動已嘗試，不重送。"
+                lastPreparationDiagnostic = LocalizedMessage("ax.attempted", [metadata])
             }
             return
         }
@@ -74,7 +74,7 @@ final class TextInserter {
         let enabledCapability: AccessibilityBridgeActivationPolicy.Enabled
         if valueStatus == .success, let enabledBoolean { enabledCapability = .value(enabledBoolean) }
         else { enabledCapability = isUnavailableAttribute(valueStatus) ? .unavailable : .failed }
-        let details = "AX 初始化：\(metadata)；role AX \(roleStatus.rawValue)；Manual settable=\(settable.boolValue) (AX \(settableStatus.rawValue))，value=\(enabledBoolean.map(String.init) ?? "unavailable") (AX \(valueStatus.rawValue))"
+        let details = LocalizedMessage("ax.details", [metadata, roleStatus.rawValue, String(settable.boolValue), settableStatus.rawValue, enabledBoolean.map(String.init) ?? "unavailable", valueStatus.rawValue])
         lastPreparationDiagnostic = details
         let action = AccessibilityBridgeActivationPolicy.action(
             principalClass: principalClass, settable: settableCapability, enabled: enabledCapability)
@@ -91,7 +91,7 @@ final class TextInserter {
             activationAttribute = "AXEnhancedUserInterface"
         }
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid, !application.isTerminated else {
-            lastPreparationDiagnostic = details + "；前景已改變，未要求初始化。"
+            lastPreparationDiagnostic = LocalizedMessage("ax.foregroundChanged", values: [details])
             return
         }
         let status = AXUIElementSetAttributeValue(app, activationAttribute as CFString, kCFBooleanTrue)
@@ -101,8 +101,8 @@ final class TextInserter {
         // hint. Success does not prove that a focused text control exists.
         bridgePreparation.recordAttempt(processID: pid, identity: identity, succeeded: status == .success,
                                         at: ProcessInfo.processInfo.systemUptime)
-        let outcome = status == .success ? "已要求啟用，仍須驗證輸入焦點" : "啟用回傳錯誤"
-        let diagnostic = details + "；\(activationAttribute)=true：\(outcome) (AX \(status.rawValue))"
+        let outcome = LocalizedMessage(status == .success ? "ax.requested" : "ax.rejected")
+        let diagnostic = LocalizedMessage("ax.outcome", values: [details, .literal(activationAttribute), outcome, .literal(String(status.rawValue))])
         lastPreparationDiagnostic = diagnostic
         lastAttemptDiagnostic = (pid, identity, diagnostic)
     }
@@ -164,7 +164,7 @@ final class TextInserter {
     }
 
     func insert(_ text: String, into target: Target, restoreClipboard: Bool,
-                onPasteDispatched: @MainActor () -> Void = {}) async throws -> String {
+                onPasteDispatched: @MainActor () -> Void = {}) async throws -> LocalizedMessage {
         guard !text.isEmpty else { throw InsertionError.emptyText }
         // Terminals can execute pasted newlines even without a Return key event.
         // Integrated terminals in other apps cannot reliably be identified by
@@ -215,7 +215,7 @@ final class TextInserter {
             }
         }
         if pasteboard.changeCount == ownedChangeCount { previous?.restore(to: pasteboard) }
-        return "Paste requested in \(target.applicationName). Check the destination; some apps block simulated paste."
+        return LocalizedMessage("insert.requested", [target.applicationName])
     }
 
     /// An explicit permanent copy. It does not require Accessibility, insert

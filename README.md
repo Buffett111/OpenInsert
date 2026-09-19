@@ -6,14 +6,15 @@ An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Buil
 
 **Early release 0.2.7:** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
 
-The 0.2.8 source adds a green waveform driven by microphone volume, with a separate transcript area and no persistent recording instructions in the overlay. Published downloads below remain 0.2.7 until the next release.
+The 0.3.0 source adds switchable English/Traditional Chinese interfaces and recorded custom shortcuts. It also includes the compact green microphone waveform introduced in 0.2.8. Published downloads below remain 0.2.7 until the next release.
 
 [繁體中文說明](#繁體中文快速開始) · [Detailed survey](docs/SURVEY.md) · [Dup model evidence](docs/DUP_MODELS.md) · [Architecture](docs/ARCHITECTURE.md) · [Privacy](docs/PRIVACY.md)
 
 ## What it does
 
+- Custom shortcuts can be recorded in Preferences. Press a combination, review it, then save; conflicts are reported before the saved setting changes. General keys require Command, Option or Control; F1–F20 may be used alone. Escape cancels recording.
 - **Option + Space** by default: hold for at least 0.35 seconds and release to finish, or tap once to start and again to stop. Duration uses the original keyboard event timestamps; conflicting shortcut registrations report an error.
-- If a release event is delayed, a limited key-state check can recover the release using the existing Accessibility grant. It reads only Space and the chosen shortcut's modifiers while that shortcut is held. If timing is too uncertain to distinguish a hold from a tap, dictation is cancelled with a retry message.
+- If a release event is delayed, a limited key-state check can recover the release using the existing Accessibility grant. It reads only the configured shortcut key and its required modifiers while that shortcut is held. If timing is too uncertain to distinguish a hold from a tap, dictation is cancelled with a retry message.
 - Streams microphone audio directly to **Gemini 3.5 Transcribe Live** over WebSocket while you speak. Raw 16 kHz mono PCM stays in bounded memory buffers; no audio file is created. Dictation is limited to about two minutes.
 - Shows live previews, processing status, and errors in a floating panel while you keep typing in another app. The panel does not activate OpenInsert or intercept clicks. **Unfinalized previews are never inserted.**
 - Offers verbatim output or a separate, text-only cleanup request to **Gemini 3.5 Flash Lite**, using minimal thinking with an eight-second total deadline. You can skip cleanup while waiting. A skip or temporary cleanup failure uses the finalized ASR text and reports the fallback; cancellation, invalid/blocked responses, and permanent errors stop automatic insertion.
@@ -91,6 +92,8 @@ Build scripts use project-local caches. In an environment that forbids nested `s
 ## 繁體中文快速開始
 
 OpenInsert 0.2.7 是支援多語言混用（code-switching）的開源 macOS 語音輸入工具，目前提供 early release。預設 **Option + Space**：按住至少 0.35 秒說話、放開完成；也可短按開始、再按一次結束。說話時透過你自己的 Gemini API key，將音訊直接串流到 **Gemini 3.5 Transcribe Live**。選擇輕度整理時，確定的逐字稿再交給 **Gemini 3.5 Flash Lite**；逐字模式跳過這一步。
+
+0.3.0 原始碼另提供繁體中文／English 介面切換，與「文字語言偏好」分開；新增翻譯可參閱[本地化指南](docs/LOCALIZATION.md)。「辨識偏好」可直接按鍵錄製自訂快捷鍵，預設仍為 Option + Space；只有成功註冊才儲存，取消不變更原設定。
 
 第一次使用請在「連線與權限」儲存 API key、同意即時音訊串流與可選文字整理、開啟麥克風與輔助使用權限，並先結束 Dup 避免快捷鍵衝突。由 0.1 升級需要重新同意。「文字語言偏好」可選繁體中文（台灣）、自動、簡體中文、English、日本語、韓語或自訂。ASR 仍自動偵測語言；繁／簡選項在本機轉換中文字形（含即時字幕），保留原本的多語言混用，不要求翻譯。
 

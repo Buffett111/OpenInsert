@@ -3,18 +3,27 @@ import Combine
 import OpenInsertCore
 
 @MainActor final class SettingsStore: ObservableObject {
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+    @Published var interfaceLanguage: InterfaceLanguage { didSet { defaults.set(interfaceLanguage.rawValue, forKey: "interfaceLanguage") } }
     @Published var model: String { didSet { defaults.set(model, forKey: "model") } }
     @Published var asrModel: String { didSet { defaults.set(asrModel, forKey: "asrModel") } }
     @Published var languageSelection: DictationLanguage { didSet { persistLanguage() } }
     @Published var customLanguage: String { didSet { persistLanguage() } }
     @Published var vocabulary: String { didSet { defaults.set(vocabulary, forKey: "vocabulary") } }
     @Published var mode: CleanupMode { didSet { defaults.set(mode.rawValue, forKey: "mode") } }
-    @Published var hotKey: HotKeyChoice { didSet { defaults.set(hotKey.rawValue, forKey: "hotKey") } }
+    @Published var hotKey: KeyboardShortcut {
+        didSet {
+            if let data = try? JSONEncoder().encode(hotKey) {
+                defaults.set(data, forKey: "customHotKey")
+            }
+        }
+    }
     @Published var restoreClipboard: Bool { didSet { defaults.set(restoreClipboard, forKey: "restoreClipboard") } }
     @Published var cloudConsent: Bool { didSet { defaults.set(cloudConsent, forKey: "liveCloudConsent") } }
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        interfaceLanguage = InterfaceLanguage(rawValue: defaults.string(forKey: "interfaceLanguage") ?? "") ?? .zhHant
         // Version 0.2 switches the pipeline to the models verified in Dup's provider UI.
         let oldModel = defaults.string(forKey: "model")
         model = oldModel == nil || oldModel == "gemini-3.8-flash" ? "gemini-3.5-flash-lite" : oldModel!
@@ -28,11 +37,19 @@ import OpenInsertCore
         customLanguage = languagePreference.customText
         vocabulary = defaults.string(forKey: "vocabulary") ?? ""
         mode = CleanupMode(rawValue: defaults.string(forKey: "mode") ?? "") ?? .polished
-        hotKey = HotKeyChoice(rawValue: defaults.string(forKey: "hotKey") ?? "") ?? .optionSpace
+        if let data = defaults.data(forKey: "customHotKey"),
+           let saved = try? JSONDecoder().decode(KeyboardShortcut.self, from: data),
+           saved.validationError == nil {
+            hotKey = saved
+        } else {
+            hotKey = KeyboardShortcut.legacyMigration(rawValue: defaults.string(forKey: "hotKey"))
+        }
         restoreClipboard = defaults.object(forKey: "restoreClipboard") as? Bool ?? true
         cloudConsent = defaults.bool(forKey: "liveCloudConsent")
         persistLanguage()
     }
+
+    var localizer: AppLocalizer { AppLocalizer(language: interfaceLanguage) }
 
     var language: String {
         DictationLanguagePreference(storedSelection: languageSelection.rawValue,

@@ -1,10 +1,10 @@
 # OpenInsert 架構與取捨
 
-本文描述尚未發布的 0.2.6 原始碼設計。平台為 macOS 13 以上，Swift Package 使用 Swift tools 5.9；程式本身不依賴第三方 package。編譯、單元測試、UI、真實 API 與跨應用插入屬不同驗證層，實際執行結果以 [VALIDATION.md](VALIDATION.md) 為準。
+本文描述尚未發布的 0.3.0 原始碼設計。平台為 macOS 13 以上，Swift Package 使用 Swift tools 5.9；程式本身不依賴第三方 package。編譯、單元測試、UI、真實 API 與跨應用插入屬不同驗證層，實際執行結果以 [VALIDATION.md](VALIDATION.md) 為準。
 
 ## 使用流程
 
-使用者先儲存自己的 Gemini API key，明確同意錄音期間將音訊串流至 Google，以及啟用整理時傳送逐字稿，再核准麥克風與所需的輔助使用權限。0.2 使用獨立的 `liveCloudConsent` 設定，0.1 的上傳同意不會自動沿用。將游標放在其他 App 的文字欄位，以預設 **Option + Space** 開始。按住至少約 0.35 秒再放開會結束錄音；短按可開始，再按一次停止。可切換為 Control + Option + Space 或 Control + Shift + Space，避開其他軟體的快捷鍵。
+使用者先儲存自己的 Gemini API key，明確同意錄音期間將音訊串流至 Google，以及啟用整理時傳送逐字稿，再核准麥克風與所需的輔助使用權限。0.2 使用獨立的 `liveCloudConsent` 設定，0.1 的上傳同意不會自動沿用。將游標放在其他 App 的文字欄位，以預設 **Option + Space** 開始。按住至少約 0.35 秒再放開會結束錄音；短按可開始，再按一次停止。0.3.0 可在設定的錄製視窗直接按下組合鍵，經驗證與成功註冊後才儲存；舊版三個預選會遷移為對應的實體鍵碼及修飾鍵。
 
 沒有可驗證的目標欄位或沒有 Accessibility 權限時，仍可完成辨識；成功的定稿結果準備好後自動複製到剪貼簿，並由 HUD 告知，使用者不必再開 App。此流程起於未發布的內部 0.2.5，沿用於 0.2.6。程式不會因此把內容貼到任意前景視窗。麥克風權限、有效金鑰與雲端同意仍為錄音／雲端路徑的必要條件。
 
@@ -71,7 +71,7 @@ GeminiLiveTranscriber → WSS → gemini-3.5-transcribe-live
 
 設定在錄音起始時擷取，避免處理途中改模型、模式或恢復選項造成同一段錄音前後不一致。按鍵 repeat 由 GlobalHotKey 去重；新 shortcut registration ID 可排除舊註冊遺留事件。0.2.2 以 Carbon `GetEventTime` 的原始按下／放開時間判斷 0.35 秒門檻，不以非同步 handler 到達時間計算；短按切換錄音、長按放開結束。註冊使用 `kEventHotKeyExclusive`，若其他 App 已占用而註冊失敗，顯示衝突錯誤並讓使用者改快捷鍵。若在麥克風授權彈窗期間放開，controller 記錄停止要求，準備完成後結束錄音。
 
-0.2.3 在收到快捷鍵 press 且已有 Accessibility 授權時，啟動背景序列佇列的 `CGEventSource.keyState` 輪詢；約每 15 ms 一次、2 ms leeway，只檢查 Space 及所註冊快捷鍵需要的修飾鍵左右兩側。它在 press 尚未完成期間運作，偵測放開後多等 75 ms，優先採用 Carbon release 的實際時間。registration／press generation 防止延遲回呼重複完成或結束下一次錄音；取消註冊也停止輪詢。沒有可靠 held 樣本且延遲到無法區分短按／長按時，觸發 `onUncertainRelease`，controller 取消錄音並提示重試，避免默默持續錄音。此檢查不安裝 event tap、不要求 Input Monitoring、不讀其他按鍵，也不保存或上傳按鍵狀態；未授權 AX 時仍依 Carbon 路徑。
+0.2.3 在收到快捷鍵 press 且已有 Accessibility 授權時，啟動背景序列佇列的 `CGEventSource.keyState` 輪詢；約每 15 ms 一次、2 ms leeway，只檢查所註冊的實體按鍵（預設 Space）及該快捷鍵需要的修飾鍵左右兩側。它在 press 尚未完成期間運作，偵測放開後多等 75 ms，優先採用 Carbon release 的實際時間。registration／press generation 防止延遲回呼重複完成或結束下一次錄音；取消註冊也停止輪詢。沒有可靠 held 樣本且延遲到無法區分短按／長按時，觸發 `onUncertainRelease`，controller 取消錄音並提示重試，避免默默持續錄音。此檢查不安裝 event tap、不要求 Input Monitoring、不讀其他按鍵，也不保存或上傳按鍵狀態；未授權 AX 時仍依 Carbon 路徑。
 
 HUD 在其他 App 保持焦點時可見，呈現現有 controller 的狀態／未定稿文字／錯誤，不靠切換前景視窗更新。它不成為 key window，也不接收點擊。設定中的「預覽浮動字幕」使用合成文字，不啟動麥克風、網路或文字插入；此預覽只能檢查外觀，不能當作真實 ASR 驗證。
 
@@ -178,3 +178,9 @@ HTTP 整理沿用序列化 request 18,000,000 bytes、response 1,000,000 bytes�
 原生麥克風權限、TCC、按住／切換快捷鍵、真實語音品質、AX 定位與標準貼上、剪貼簿競態、瀏覽器／Electron／終端／遠端桌面與乾淨安裝，都需要額外整合測試。建議矩陣在 [SURVEY.md](SURVEY.md)。沒有實測數據前，不承諾特定辨識率、延遲、CPU／RAM 或所有 App 支援。
 
 後續改進依使用證據排序：真實 Live 完成訊號與繁中語料回歸、可調整貼上恢復延遲、更多目的 App 相容性、麥克風選擇、本地 Whisper provider，再評估跨平台。不為尚未完成的項目在產品 UI 顯示已支援。
+
+## 0.3.0 介面語言與自訂快捷鍵
+
+`InterfaceLanguage` 與 Swift Package 的 `.lproj/*.strings` 資源提供本地化；`AppLocalizer` 顯式選擇語言並以 English 補缺，打包後優先從 App 自帶的 package resource bundle 讀取。`SettingsStore.interfaceLanguage` 僅控制介面；既有 dictation language、模型與逐字稿保持獨立。狀態訊息保存 key 與參數後重新呈現，避免切換語言時修改使用者辨識內容。完整擴充流程見 [LOCALIZATION.md](LOCALIZATION.md)。
+
+快捷鍵保存實體鍵碼與修飾鍵，不保存使用者輸入的文字。錄製只在前景設定視窗安裝局部 keyDown monitor，暫停原全域快捷鍵，避免錄製組合時啟動麥克風。取消、關閉或 App 失去前景時恢復原設定；候選通過驗證及 Carbon 註冊後才持久化。全域註冊失敗保留既有註冊，自訂快捷鍵的放開補救同步追蹤其實體鍵碼。

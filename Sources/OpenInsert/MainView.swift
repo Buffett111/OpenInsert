@@ -11,7 +11,7 @@ struct MainView: View {
     @ViewState private var tab = 0
     @ViewState private var keyDraft = ""
     private let accent = Color(red: 0.20, green: 0.64, blue: 0.48)
-    private let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? l("version.development") }
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .top, spacing: 14) {
@@ -19,12 +19,12 @@ struct MainView: View {
                     .foregroundStyle(.white).frame(width: 56, height: 56)
                     .background(accent.gradient, in: RoundedRectangle(cornerRadius: 17))
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("OpenInsert").font(.system(size: 29, weight: .bold, design: .rounded))
-                    Text("你的聲音，你的文字。開源語音輸入。")
+                    Text(verbatim: "OpenInsert").font(.system(size: 29, weight: .bold, design: .rounded))
+                    Text(l("app.tagline"))
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("MIT · v\(version)").font(.caption.monospaced()).foregroundStyle(.secondary)
+                Text(l("app.version", [version])).font(.caption.monospaced()).foregroundStyle(.secondary)
                     .padding(.vertical, 6).padding(.horizontal, 10)
                     .background(.quaternary, in: Capsule())
             }
@@ -33,7 +33,7 @@ struct MainView: View {
                     Circle().fill(controller.phase == .recording ? .red : accent).frame(width: 8, height: 8)
                     Text(controller.statusTitle).font(.title3.weight(.semibold))
                     Spacer()
-                    if controller.phase == .recording { Text(String(format: "%.1fs / 120s", controller.elapsed)).monospacedDigit() }
+                    if controller.phase == .recording { Text(l("recording.elapsed", [controller.elapsed])).monospacedDigit() }
                     if controller.busy && controller.phase != .recording { ProgressView().controlSize(.small) }
                 }
                 Text(controller.message).font(.callout).foregroundStyle(.secondary)
@@ -45,12 +45,12 @@ struct MainView: View {
                 if controller.busy {
                     HStack {
                         if controller.phase == .recording {
-                            Button("完成錄音") { controller.finishRecording() }.buttonStyle(.borderedProminent).tint(accent)
+                            Button(l("recording.finish")) { controller.finishRecording() }.buttonStyle(.borderedProminent).tint(accent)
                         }
                         if controller.phase == .polishing && !controller.testingPipeline {
-                            Button("略過後修，直接使用辨識結果") { controller.skipPolishing() }
+                            Button(l("cleanup.skip")) { controller.skipPolishing() }
                         }
-                        Button("取消") { controller.cancel() }.disabled(controller.phase == .inserting)
+                        Button(l("common.cancel")) { controller.cancel() }.disabled(controller.phase == .inserting)
                     }
                 }
                 if let error = controller.hotKeyError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.caption) }
@@ -58,8 +58,8 @@ struct MainView: View {
             .padding(18).frame(maxWidth: .infinity, alignment: .leading)
             .background(accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
 
-            Picker("頁面", selection: $tab) {
-                Text("開始使用").tag(0); Text("辨識偏好").tag(1); Text("連線與權限").tag(2); Text("關於與隱私").tag(3)
+            Picker(l("navigation.page"), selection: $tab) {
+                Text(l("navigation.home")).tag(0); Text(l("navigation.preferences")).tag(1); Text(l("navigation.connection")).tag(2); Text(l("navigation.about")).tag(3)
             }.pickerStyle(.segmented)
 
             ScrollView {
@@ -74,146 +74,169 @@ struct MainView: View {
             }
             HStack {
                 Image(systemName: "lock.shield").foregroundStyle(accent)
-                Text("不擷取螢幕 · 不儲存歷史 · API key 存於 Keychain").font(.caption).foregroundStyle(.secondary)
+                Text(l("privacy.footer")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Picker(l("interface.language"), selection: $settings.interfaceLanguage) {
+                    ForEach(InterfaceLanguage.allCases) { language in
+                        Text(language.nativeName).tag(language)
+                    }
+                }.pickerStyle(.menu).fixedSize()
             }
         }.padding(28).frame(minWidth: 650, minHeight: 600).tint(accent)
+            .sheet(isPresented: Binding(
+                get: { controller.recordingShortcut },
+                set: { if !$0 { controller.cancelShortcutRecording() } }
+            )) {
+                ShortcutRecorderView(
+                    current: settings.hotKey,
+                    language: settings.interfaceLanguage,
+                    errorMessage: controller.shortcutCaptureError,
+                    onSave: controller.saveShortcut,
+                    onCancel: controller.cancelShortcutRecording
+                )
+            }
+    }
+
+    private func l(_ key: String, _ arguments: [CVarArg] = []) -> String {
+        settings.localizer.text(key, arguments: arguments)
     }
 
     private var home: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 20) {
-                step("1", "完成設定", "填入 Gemini API key，啟用麥克風與輔助使用權限。")
-                step("2", "放好游標", "切換到你要輸入文字的 App 或瀏覽器欄位。")
-                step("3", "按鍵說話", "按住 \(settings.hotKey.displayName) 錄音，放開即完成。")
+                step("1", l("home.setup.title"), l("home.setup.detail"))
+                step("2", l("home.cursor.title"), l("home.cursor.detail"))
+                step("3", l("home.speak.title"), l("home.speak.detail", [settings.hotKey.displayName]))
             }
             HStack {
                 Label(settings.hotKey.displayName, systemImage: "keyboard").font(.headline)
-                Text("短按開始，再按結束；長按錄音，放開結束。").font(.caption).foregroundStyle(.secondary)
+                Text(l("home.gesture")).font(.caption).foregroundStyle(.secondary)
             }.padding(13).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
             if !controller.liveText.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("即時預覽 · 尚未定稿").font(.caption.weight(.semibold)).foregroundStyle(accent)
+                    Text(l("home.preview")).font(.caption.weight(.semibold)).foregroundStyle(accent)
                     Text(controller.liveText).font(.body).textSelection(.enabled)
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
                     .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
             }
             HStack {
-                Text("最近一次結果").font(.headline)
+                Text(l("home.result")).font(.headline)
                 Spacer()
-                Button("清除") { controller.clearResult() }.disabled(controller.lastText.isEmpty || controller.busy)
-                Button("複製文字") { controller.copyResult() }.disabled(controller.lastText.isEmpty)
+                Button(l("common.clear")) { controller.clearResult() }.disabled(controller.lastText.isEmpty || controller.busy)
+                Button(l("home.copy")) { controller.copyResult() }.disabled(controller.lastText.isEmpty)
             }
             TextEditor(text: $controller.lastText).font(.body).frame(minHeight: 125)
                 .padding(8).background(.background, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
-                .accessibilityLabel("最近一次辨識結果")
-                Text("沒有可用輸入位置時，完成的結果會自動複製到剪貼簿，可直接按 ⌘V 貼上。程式不會模擬 Enter；已知終端機的多行內容會複製到剪貼簿供你手動貼上。")
+                .accessibilityLabel(l("home.result.accessibility"))
+                Text(l("home.delivery"))
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
-                Button("測試文字插入（5 秒倒數）") { controller.testInsertion() }.disabled(controller.busy)
+                Button(l("home.test")) { controller.testInsertion() }.disabled(controller.busy)
                 Spacer()
-                Button("前往設定") { tab = 2 }
+                Button(l("home.settings")) { tab = 2 }
             }
         }
     }
     private var preferences: some View {
         VStack(alignment: .leading, spacing: 18) {
-            setting("即時字幕", detail: "綠色聲波隨麥克風音量起伏，逐字稿顯示在下方，不會切換 App 或搶走游標。預覽使用模擬音量，不會錄音或連線。") {
-                Button("預覽浮動字幕") { onPreviewHUD() }
+            setting(l("preferences.overlay"), detail: l("preferences.overlay.detail")) {
+                Button(l("preferences.overlay.preview")) { onPreviewHUD() }
             }
-            setting("全域快捷鍵", detail: "預設 Option + Space。請先結束占用同一快捷鍵的 App；若快捷鍵已被占用會顯示錯誤。") {
-                Picker("快捷鍵", selection: $settings.hotKey) {
-                    ForEach(HotKeyChoice.allCases, id: \.self) { Text($0.displayName).tag($0) }
-                }.labelsHidden().onChange(of: settings.hotKey) { _ in controller.registerShortcut() }
+            setting(l("preferences.shortcut"), detail: l("preferences.shortcut.detail")) {
+                HStack {
+                    Label(settings.hotKey.displayName, systemImage: "keyboard")
+                    Spacer()
+                    Button(l("preferences.shortcut.record")) { _ = controller.beginShortcutRecording() }
+                }
             }
-            setting("輸出方式", detail: "輕度整理會移除口頭贅詞、加入標點，保留原意；逐字模式保留原來說法。") {
-                Picker("輸出方式", selection: $settings.mode) {
-                    Text("輕度整理").tag(CleanupMode.polished); Text("逐字辨識").tag(CleanupMode.verbatim)
+            setting(l("preferences.mode"), detail: l("preferences.mode.detail")) {
+                Picker(l("preferences.mode"), selection: $settings.mode) {
+                    Text(l("preferences.mode.polished")).tag(CleanupMode.polished); Text(l("preferences.mode.verbatim")).tag(CleanupMode.verbatim)
                 }.pickerStyle(.segmented).labelsHidden()
             }
-            setting("文字語言偏好", detail: "預設繁體中文並保留中英混用。辨識仍自動偵測語言；繁／簡選項會在本機轉換中文字形，其他選項提供整理時的書寫偏好，不會把內容翻譯成所選語言。") {
-                Picker("文字語言偏好", selection: $settings.languageSelection) {
+            setting(l("preferences.language"), detail: l("preferences.language.detail")) {
+                Picker(l("preferences.language"), selection: $settings.languageSelection) {
                     ForEach(DictationLanguage.allCases) { language in
-                        Text(language.displayName).tag(language)
+                        Text(l("dictation.language." + language.rawValue)).tag(language)
                     }
                 }.pickerStyle(.menu).labelsHidden()
                 if settings.languageSelection == .custom {
-                    TextField("例如：保留廣東話用字與口述英文", text: $settings.customLanguage)
+                    TextField(l("preferences.language.placeholder"), text: $settings.customLanguage)
                         .textFieldStyle(.roundedBorder)
-                        .accessibilityLabel("自訂書寫語言偏好")
-                    Text("舊版自訂偏好會保留於此；此欄用於書寫與標點偏好。需要繁簡字形轉換時，請選擇上方對應選項。")
+                        .accessibilityLabel(l("preferences.language.custom"))
+                    Text(l("preferences.language.legacy"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            setting("自訂詞彙", detail: "例如人名、產品名與術語，每行一個。這些詞彙會和錄音一起送到 Google。") {
+            setting(l("preferences.vocabulary"), detail: l("preferences.vocabulary.detail")) {
                 TextEditor(text: $settings.vocabulary).frame(height: 80).padding(5).overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
-                    .accessibilityLabel("自訂詞彙")
+                    .accessibilityLabel(l("preferences.vocabulary"))
             }
-            Toggle("貼上後還原剪貼簿", isOn: $settings.restoreClipboard)
-            Text("會保留剪貼簿的各種格式；若其他 App 在等待期間更新剪貼簿，就不覆蓋它。少數慢速 App 若貼上不完整，可關閉還原後再試。")
+            Toggle(l("preferences.clipboard"), isOn: $settings.restoreClipboard)
+            Text(l("preferences.clipboard.detail"))
                 .font(.caption).foregroundStyle(.secondary)
         }.disabled(controller.busy)
     }
     private var connection: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                Label(controller.hasAPIKey ? "Gemini API key 已儲存" : "Gemini API key 尚未設定", systemImage: controller.hasAPIKey ? "checkmark.circle.fill" : "key")
+                Label(controller.hasAPIKey ? l("connection.key.saved") : l("connection.key.missing"), systemImage: controller.hasAPIKey ? "checkmark.circle.fill" : "key")
                     .font(.headline)
                 Spacer()
-                Link("取得 API key ↗", destination: URL(string: "https://aistudio.google.com/apikey")!)
+                Link(l("connection.key.get"), destination: URL(string: "https://aistudio.google.com/apikey")!)
             }
             HStack {
-                SecureField("貼上你的 Gemini API key", text: $keyDraft).textFieldStyle(.roundedBorder)
-                Button("儲存到 Keychain") { if controller.saveKey(keyDraft) { keyDraft = "" } }.disabled(keyDraft.isEmpty)
-                Button("刪除") { controller.deleteKey() }.disabled(!controller.hasAPIKey)
+                SecureField(l("connection.key.placeholder"), text: $keyDraft).textFieldStyle(.roundedBorder)
+                Button(l("connection.key.save")) { if controller.saveKey(keyDraft) { keyDraft = "" } }.disabled(keyDraft.isEmpty)
+                Button(l("common.delete")) { controller.deleteKey() }.disabled(!controller.hasAPIKey)
             }.disabled(controller.busy)
-            setting("即時 ASR 模型", detail: "與你安裝的 Dup 相同：Gemini 3.5 Transcribe Live，透過 Live API 串流辨識。") {
-                TextField("Live ASR 模型 ID", text: $settings.asrModel).textFieldStyle(.roundedBorder).disabled(controller.busy)
+            setting(l("connection.asr"), detail: l("connection.asr.detail")) {
+                TextField(l("connection.asr.placeholder"), text: $settings.asrModel).textFieldStyle(.roundedBorder).disabled(controller.busy)
             }
-            setting("文字整理模型", detail: "與 Dup 相同：Gemini 3.5 Flash Lite。只在「輕度整理」模式將逐字稿另送一次整理請求。") {
-                TextField("文字模型 ID", text: $settings.model).textFieldStyle(.roundedBorder).disabled(controller.busy)
+            setting(l("connection.cleanup"), detail: l("connection.cleanup.detail")) {
+                TextField(l("connection.cleanup.placeholder"), text: $settings.model).textFieldStyle(.roundedBorder).disabled(controller.busy)
             }
-            Toggle("我同意錄音時即串流音訊與詞彙至 Google，並依模式傳送逐字稿整理", isOn: $settings.cloudConsent)
+            Toggle(l("connection.consent"), isOn: $settings.cloudConsent)
                 .disabled(controller.busy)
-            Button("檢查 Gemini 連線（不錄音）") { controller.checkConnection() }
+            Button(l("connection.check")) { controller.checkConnection() }
                 .disabled(controller.busy || !controller.hasAPIKey || !settings.cloudConsent)
             VStack(alignment: .leading, spacing: 7) {
-                Button("測試辨識與後修（不錄音）") { controller.testPipeline() }
+                Button(l("connection.pipeline")) { controller.testPipeline() }
                     .disabled(controller.busy || !controller.hasAPIKey || !settings.cloudConsent)
-                Text("使用固定測試句合成聲音並送到 Google，分別量測 ASR 收尾與後修；不使用麥克風、不插入文字。")
+                Text(l("connection.pipeline.detail"))
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Text("使用自己的 API key，費用與資料處理規則依你的 Google 帳號方案。OpenInsert 不經過開發者的伺服器。")
+            Text(l("connection.terms"))
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
-            permission("麥克風", granted: controller.microphoneGranted, description: "只在你啟動錄音時使用。", action: controller.requestMicrophone)
-            permission("輔助使用", granted: controller.accessibilityGranted, description: "把辨識結果放到目前輸入位置；不讀取整份文件。", action: controller.requestAccessibility)
+            permission(l("permission.microphone"), granted: controller.microphoneGranted, description: l("permission.microphone.detail"), action: controller.requestMicrophone)
+            permission(l("permission.accessibility"), granted: controller.accessibilityGranted, description: l("permission.accessibility.detail"), action: controller.requestAccessibility)
             if !controller.accessibilityGranted {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("若系統設定已啟用，這裡仍未偵測到權限，更新或重新建置後可能需要移除舊的 OpenInsert 項目，再加入目前這份 App 並啟用，然後重新檢查權限。")
+                    Text(l("permission.repair"))
                         .font(.caption).foregroundStyle(.secondary)
-                    Text("目前執行的 App：").font(.caption.weight(.semibold))
+                    Text(l("permission.path")).font(.caption.weight(.semibold))
                     Text(Bundle.main.bundlePath).font(.caption.monospaced())
                         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
                     .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
             }
-            Button("重新檢查權限") { controller.refreshPermissions() }
+            Button(l("permission.recheck")) { controller.refreshPermissions() }
         }
     }
     private var about: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("一條簡單、可檢查的資料路徑。").font(.title3.weight(.semibold))
-            Text("麥克風 → Transcribe Live → Flash Lite（可選）→ 文字插入")
+            Text(l("about.title")).font(.title3.weight(.semibold))
+            Text(l("about.pipeline"))
                 .font(.body.monospaced()).padding(16).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-            Text("• 沒有螢幕截圖、OCR、螢幕錄製權限或分析追蹤。\n• 音訊以 PCM 在記憶體中緩衝並串流，不寫錄音檔。\n• 取消會停止錄音與連線；已送出的音訊無法收回。\n• 最近結果只保留在記憶體，結束 App 即消失。\n• 切換 App／欄位時停止自動插入，密碼欄位不支援。")
+            Text(l("about.privacy"))
                 .font(.callout).lineSpacing(7)
             HStack {
-                Link("Google API 資料政策 ↗", destination: URL(string: "https://ai.google.dev/gemini-api/terms")!)
-                Link("Gemini 模型文件 ↗", destination: URL(string: "https://ai.google.dev/gemini-api/docs/models")!)
+                Link(l("about.google"), destination: URL(string: "https://ai.google.dev/gemini-api/terms")!)
+                Link(l("about.models"), destination: URL(string: "https://ai.google.dev/gemini-api/docs/models")!)
             }
-            Text("OpenInsert \(version) · MIT License\n採用與 Dup 設定相同的 ASR 與文字模型；提示詞與程式由本專案獨立實作。與 Dup 無隸屬關係。")
+            Text(l("about.license", [version]))
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -238,7 +261,7 @@ struct MainView: View {
                 Text(title).font(.headline); Text(description).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Button(granted ? "已啟用" : "啟用") { action() }.disabled(granted || controller.busy)
+            Button(granted ? l("permission.enabled") : l("permission.enable")) { action() }.disabled(granted || controller.busy)
         }
     }
 }

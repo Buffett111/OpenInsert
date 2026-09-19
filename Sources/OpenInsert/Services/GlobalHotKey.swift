@@ -3,35 +3,60 @@ import Foundation
 import ApplicationServices
 import OpenInsertCore
 
-enum HotKeyChoice: String, CaseIterable, Identifiable {
-    case controlOptionSpace
-    case optionSpace
-    case controlShiftSpace
-
-    var id: String { rawValue }
-    var displayName: String {
-        switch self {
-        case .controlOptionSpace: return "⌃⌥ Space"
-        case .optionSpace: return "⌥ Space"
-        case .controlShiftSpace: return "⌃⇧ Space"
-        }
-    }
-
+extension KeyboardShortcut {
     fileprivate var carbonModifiers: UInt32 {
-        switch self {
-        case .controlOptionSpace: return UInt32(controlKey | optionKey)
-        case .optionSpace: return UInt32(optionKey)
-        case .controlShiftSpace: return UInt32(controlKey | shiftKey)
-        }
+        var result: UInt32 = 0
+        if modifiers.contains(.command) { result |= UInt32(cmdKey) }
+        if modifiers.contains(.option) { result |= UInt32(optionKey) }
+        if modifiers.contains(.control) { result |= UInt32(controlKey) }
+        if modifiers.contains(.shift) { result |= UInt32(shiftKey) }
+        return result
     }
 
     /// Each group permits either the left or right physical modifier.
     fileprivate var modifierKeyGroups: [[CGKeyCode]] {
-        switch self {
-        case .controlOptionSpace: return [[CGKeyCode(kVK_Control), CGKeyCode(kVK_RightControl)], [CGKeyCode(kVK_Option), CGKeyCode(kVK_RightOption)]]
-        case .optionSpace: return [[CGKeyCode(kVK_Option), CGKeyCode(kVK_RightOption)]]
-        case .controlShiftSpace: return [[CGKeyCode(kVK_Control), CGKeyCode(kVK_RightControl)], [CGKeyCode(kVK_Shift), CGKeyCode(kVK_RightShift)]]
+        var groups: [[CGKeyCode]] = []
+        if modifiers.contains(.command) { groups.append([CGKeyCode(kVK_Command), CGKeyCode(kVK_RightCommand)]) }
+        if modifiers.contains(.option) { groups.append([CGKeyCode(kVK_Option), CGKeyCode(kVK_RightOption)]) }
+        if modifiers.contains(.control) { groups.append([CGKeyCode(kVK_Control), CGKeyCode(kVK_RightControl)]) }
+        if modifiers.contains(.shift) { groups.append([CGKeyCode(kVK_Shift), CGKeyCode(kVK_RightShift)]) }
+        return groups
+    }
+
+    var displayName: String {
+        let prefix = (modifiers.contains(.control) ? "⌃" : "")
+            + (modifiers.contains(.option) ? "⌥" : "")
+            + (modifiers.contains(.shift) ? "⇧" : "")
+            + (modifiers.contains(.command) ? "⌘" : "")
+        let names: [UInt32: String] = [36:"Return", 48:"Tab", 49:"Space", 51:"Delete", 53:"Esc",
+            71:"Clear", 76:"Enter", 114:"Help", 115:"Home", 116:"Page Up", 117:"Forward Delete",
+            119:"End", 121:"Page Down", 123:"←", 124:"→", 125:"↓", 126:"↑"]
+        func label(_ name: String) -> String { prefix.isEmpty ? name : prefix + " " + name }
+        if let name = names[keyCode] { return label(name) }
+        let functionKeys: [UInt32] = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90]
+        if let index = functionKeys.firstIndex(of: keyCode) { return label("F" + String(index + 1)) }
+        guard keyCode <= 127 else { return label("Key " + String(keyCode)) }
+        // Read only layout metadata to label the stored physical key.
+        if let input = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+           let raw = TISGetInputSourceProperty(input, kTISPropertyUnicodeKeyLayoutData) {
+            let data = Unmanaged<CFData>.fromOpaque(raw).takeUnretainedValue()
+            if let bytes = CFDataGetBytePtr(data) {
+                let layout = UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+                var deadKeyState: UInt32 = 0
+                var characters = [UniChar](repeating: 0, count: 8)
+                var length = 0
+                let status = UCKeyTranslate(layout, UInt16(keyCode), UInt16(kUCKeyActionDisplay), 0,
+                    UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysBit), &deadKeyState,
+                    characters.count, &length, &characters)
+                if status == noErr, length > 0 {
+                    let label = String(utf16CodeUnits: characters, count: length).uppercased()
+                    if label.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) {
+                        return prefix.isEmpty ? label : prefix + " " + label
+                    }
+                }
+            }
         }
+        return label("Key " + String(keyCode))
     }
 }
 
@@ -50,16 +75,18 @@ final class GlobalHotKey {
     private var pressed = false
     private var pressedAt: TimeInterval = 0
     private var pressGeneration: UInt64 = 0
-    private var choice = HotKeyChoice.optionSpace
+    private var shortcut = KeyboardShortcut.optionSpace
     private let releaseMonitor = HotKeyReleaseMonitor()
     private(set) var lastReleaseSource: String?
     private var registrationID: UInt32 = 0
+    private var nextRegistrationID: UInt32 = 0
     private static let signature: OSType = 0x4F494E53 // OINS
 
     init() {}
 
-    func register(choice: HotKeyChoice) throws {
-        unregister()
+    func register(shortcut: KeyboardShortcut) throws {
+        try shortcut.validate()
+        if hotKey != nil, self.shortcut == shortcut { return }
         if handler == nil {
             var events = [
                 EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
@@ -86,12 +113,30 @@ final class GlobalHotKey {
             }, events.count, &events, Unmanaged.passUnretained(self).toOpaque(), &handler)
             guard status == noErr else { throw HotKeyError(status: status) }
         }
-        registrationID &+= 1
-        let identifier = EventHotKeyID(signature: Self.signature, id: registrationID)
-        let status = RegisterEventHotKey(UInt32(kVK_Space), choice.carbonModifiers, identifier,
-                                        GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &hotKey)
-        guard status == noErr else { throw HotKeyError(status: status) }
-        self.choice = choice
+        nextRegistrationID &+= 1
+        let candidateID = nextRegistrationID
+        let identifier = EventHotKeyID(signature: Self.signature, id: candidateID)
+        var candidate: EventHotKeyRef?
+        let status = RegisterEventHotKey(shortcut.keyCode, shortcut.carbonModifiers, identifier,
+                                        GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &candidate)
+        guard status == noErr, let candidate else {
+            if let candidate { UnregisterEventHotKey(candidate) }
+            throw HotKeyError(status: status == noErr ? OSStatus(paramErr) : status)
+        }
+        // Keep the previous registration and press recovery until success.
+        if let previous = hotKey {
+            let removalStatus = UnregisterEventHotKey(previous)
+            guard removalStatus == noErr else {
+                UnregisterEventHotKey(candidate)
+                throw HotKeyError(status: removalStatus)
+            }
+        }
+        hotKey = candidate
+        registrationID = candidateID
+        self.shortcut = shortcut
+        pressed = false
+        pressGeneration &+= 1
+        releaseMonitor.stop()
     }
 
     func unregister() {
@@ -113,7 +158,7 @@ final class GlobalHotKey {
             // request Keychain/AX/audio startup. Only an existing AX grant is used;
             // this never installs a keyboard tap or requests Input Monitoring.
             if AXIsProcessTrusted() {
-                releaseMonitor.start(pressedAt: timestamp, modifiers: choice.modifierKeyGroups) { [weak self] releaseTime, uncertain in
+                releaseMonitor.start(pressedAt: timestamp, keyCode: CGKeyCode(shortcut.keyCode), modifiers: shortcut.modifierKeyGroups) { [weak self] releaseTime, uncertain in
                     // Allow already queued Carbon events to supply the exact
                     // physical timestamp before using a conservative snapshot.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.075) { [weak self] in
@@ -154,7 +199,7 @@ final class GlobalHotKey {
     }
 }
 
-/// Reads Space and only the registered shortcut's modifier keys while a press
+/// Reads the registered key and only its required modifier keys while a press
 /// is outstanding. The serial queue owns its timer and state; no key data is
 /// retained, logged, or sent to the provider. Carbon remains the primary path.
 private final class HotKeyReleaseMonitor: @unchecked Sendable {
@@ -162,7 +207,7 @@ private final class HotKeyReleaseMonitor: @unchecked Sendable {
     private var timer: DispatchSourceTimer?
     private var generation: UInt64 = 0
 
-    func start(pressedAt: TimeInterval, modifiers: [[CGKeyCode]], onRelease: @escaping @Sendable (TimeInterval, Bool) -> Void) {
+    func start(pressedAt: TimeInterval, keyCode: CGKeyCode, modifiers: [[CGKeyCode]], onRelease: @escaping @Sendable (TimeInterval, Bool) -> Void) {
         queue.async { [weak self] in
             guard let self else { return }
             self.timer?.cancel()
@@ -174,8 +219,8 @@ private final class HotKeyReleaseMonitor: @unchecked Sendable {
             timer.schedule(deadline: .now(), repeating: .milliseconds(15), leeway: .milliseconds(2))
             timer.setEventHandler { [weak self] in
                 guard let self, self.generation == generation else { return }
-                let spaceHeld = CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(kVK_Space))
-                let held = spaceHeld && modifiers.allSatisfy { group in
+                let keyHeld = CGEventSource.keyState(.combinedSessionState, key: keyCode)
+                let held = keyHeld && modifiers.allSatisfy { group in
                     group.contains { CGEventSource.keyState(.combinedSessionState, key: $0) }
                 }
                 // GetCurrentEventTime shares Carbon's seconds-since-boot clock.

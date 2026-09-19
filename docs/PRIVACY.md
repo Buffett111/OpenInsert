@@ -12,7 +12,7 @@ The WebSocket and cleanup HTTP sessions are ephemeral, with URL cache, cookie st
 
 **Local checks and preview:** Before opening the microphone, OpenInsert checks the saved key for header safety and checks local ASR settings. This does not contact Google or prove that the key is authorized. It does not inspect the key's identity or log its contents. A floating, nonactivating panel displays the current transcript preview, status, or error without capturing the screen or reading the app behind it. The **預覽浮動字幕** button shows synthetic text only, with no microphone, network request, or insertion.
 
-**Shortcut release recovery:** Carbon hotkey events are the primary input. During an outstanding shortcut press, an existing Accessibility grant also allows limited background polling of Space and only that shortcut's required modifier keys to detect release. No other keys are read; no event tap or Input Monitoring request is added, and key-state samples are not logged or uploaded. Ambiguous timing cancels the dictation with a retry message.
+**Shortcut release recovery:** Carbon hotkey events are the primary input. During an outstanding shortcut press, an existing Accessibility grant also allows limited background polling of the configured shortcut key (Space by default) and only its required modifier keys to detect release. No other keys are read; no event tap or Input Monitoring request is added, and key-state samples are not logged or uploaded. Ambiguous timing cancels the dictation with a retry message.
 
 **Optional connection check:** **檢查 Gemini 連線（不錄音）** requires a saved Keychain key and Google consent. It contacts Google with that key, the selected Live model, and fixed session settings, then closes the session. The custom vocabulary is empty; no microphone, audio, transcript, or insertion is involved. Google receives the authentication and ordinary connection metadata. Success confirms only that the connection and model setup were accepted, not successful ASR or insertion.
 
@@ -48,7 +48,7 @@ WebSocket 與文字整理的 HTTP session 為 ephemeral，停用 URL cache、coo
 
 **本機檢查與預覽：** 開啟麥克風前，程式會檢查保存的 key 能否安全放入 header，以及本機 ASR 設定；此步驟不連線 Google，也不證明金鑰已授權，不解析 key 身分或記錄其內容。浮動面板不啟用 App、不搶焦點，只顯示目前的逐字稿預覽、狀態或錯誤，不擷取背後的畫面或文字。「預覽浮動字幕」只顯示合成範例，不啟用麥克風、不發送網路請求、不插入文字。
 
-**快捷鍵放開補救：** 主要輸入仍是 Carbon hotkey 事件。快捷鍵 press 尚未完成且已有輔助使用授權時，程式會在背景只檢查 Space 與該快捷鍵需要的修飾鍵狀態，補回可能遺失的放開事件；不讀其他按鍵、不安裝 event tap、不增加 Input Monitoring 請求，也不記錄或上傳按鍵狀態。時間資訊不足以判斷短按／長按時，取消本次錄音並提示重試。
+**快捷鍵放開補救：** 主要輸入仍是 Carbon hotkey 事件。快捷鍵 press 尚未完成且已有輔助使用授權時，程式會在背景只檢查自訂快捷鍵的實體按鍵（預設 Space）與該快捷鍵需要的修飾鍵狀態，補回可能遺失的放開事件；不讀其他按鍵、不安裝 event tap、不增加 Input Monitoring 請求，也不記錄或上傳按鍵狀態。時間資訊不足以判斷短按／長按時，取消本次錄音並提示重試。
 
 **選用連線檢查：**「檢查 Gemini 連線（不錄音）」需要已保存的 Keychain 金鑰與 Google 同意，會以該金鑰、所選 Live 模型及固定 session 設定連線 Google，然後關閉。自訂詞彙為空，不開麥克風、不送音訊或逐字稿、不插入文字。Google 會收到認證與一般連線資訊。成功僅表示當時連線與模型 setup 獲接受，不是 ASR 或插入成功的證據。
 
@@ -75,3 +75,9 @@ Secure Event Input 啟用時會拒絕自動插入；辨識為終端 App 時也�
 自行建置可在已 gitignore 的 `.local-signing-identity` 保存既有憑證的 fingerprint；`CODE_SIGN_IDENTITY` 優先。該檔只選擇本機簽署身分，不是私鑰；重用穩定身分可協助沿用本機權限，仍依 macOS 政策判定。Apple Development 簽署不是 Developer ID 散布簽章或公證；公開 CI 不包含這個本機檔案或任何個人簽署身分。
 
 Implementation details / 實作細節：[ARCHITECTURE.md](ARCHITECTURE.md)。
+
+## Interface language and custom shortcut settings (0.3.0)
+
+The interface language is stored locally and never changes or translates a transcript. Shortcut recording uses an app-local keyDown monitor only while the foreground recorder is active. It stores a physical key code and modifier bits, not typed text. Recording a shortcut does not record audio or contact Google, and it adds no keyboard event tap or Input Monitoring permission. The current shortcut is suspended during capture and restored when capture is cancelled.
+
+介面語言只保存在本機，不會變更或翻譯辨識結果。快捷鍵錄製只在前景設定視窗啟用局部 keyDown monitor，保存實體鍵碼及修飾鍵，不保存輸入文字；不錄音、不連線 Google，也不新增 event tap 或 Input Monitoring 權限。錄製期間暫停原快捷鍵，取消後恢復。

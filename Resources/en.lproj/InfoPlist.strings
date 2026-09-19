@@ -1,0 +1,1 @@
+"NSMicrophoneUsageDescription" = "OpenInsert records only when you start dictation. Audio is sent directly to Google Gemini using your own API key.";

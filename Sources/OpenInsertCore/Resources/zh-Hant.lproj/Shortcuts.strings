@@ -1,0 +1,16 @@
+"shortcut.title" = "錄製快捷鍵";
+"shortcut.instructions" = "按下新快捷鍵，再按「儲存」。一般按鍵需搭配 Command、Option 或 Control，也可以單用 F1–F20。按 Escape 取消。";
+"shortcut.listening" = "請按下快捷鍵…";
+"shortcut.candidate" = "新快捷鍵";
+"shortcut.current" = "目前快捷鍵：%@";
+"shortcut.privacy" = "只在這個前景視窗接收組合鍵，不保存或傳送輸入文字。長按與短按的使用方式保持不變。";
+"shortcut.default" = "使用 ⌥ Space";
+"shortcut.recordAgain" = "重新錄製";
+"shortcut.cancel" = "取消";
+"shortcut.save" = "儲存";
+"shortcut.validation.unsupportedKey" = "不支援這個按鍵，請選擇一般按鍵或 F1–F20。";
+"shortcut.validation.modifierKey" = "請同時按下一般按鍵與修飾鍵。";
+"shortcut.validation.escapeReserved" = "Escape 保留用來取消快捷鍵錄製。";
+"shortcut.validation.modifierRequired" = "請搭配 Command、Option 或 Control；F1–F20 可以單獨使用。";
+"shortcut.validation.unknownModifiers" = "不支援這組修飾鍵。";
+"shortcut.registration.error" = "無法註冊這組快捷鍵（%d），可能正由 macOS 或其他 App 使用；已儲存的快捷鍵未變更。";

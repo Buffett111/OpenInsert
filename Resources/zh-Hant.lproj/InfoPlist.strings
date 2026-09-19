@@ -1,0 +1,1 @@
+"NSMicrophoneUsageDescription" = "OpenInsert 只在你主動開始語音輸入時錄音，並使用你自己的 API key 將音訊直接傳送至 Google Gemini。";

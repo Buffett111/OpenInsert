@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import OpenInsertCore
 
 /// A pass-through status display. Ordering this panel never activates OpenInsert
 /// or changes the destination app's keyboard focus.
@@ -20,6 +21,7 @@ final class DictationHUD {
 
     init(controller: DictationController) {
         self.controller = controller
+        model.localizer = controller.settings.localizer
         panel = DictationHUDPanel(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 176),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false
@@ -36,14 +38,28 @@ final class DictationHUD {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.contentView = NSHostingView(rootView: DictationHUDView(model: model))
 
+        controller.settings.$interfaceLanguage.removeDuplicates().sink { [weak self] language in
+            guard let self else { return }
+            // @Published delivers the new value before SettingsStore is assigned.
+            self.model.localizer = AppLocalizer(language: language)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.closed, self.panel.isVisible else { return }
+                if self.controller.pasteDispatched { self.hide(); return }
+                if self.model.content.preview {
+                    self.model.update(self.previewContent())
+                } else {
+                    self.model.update(self.currentContent(failure: self.model.content.failure))
+                }
+            }
+        }.store(in: &subscriptions)
         controller.objectWillChange.sink { [weak self] _ in
             self?.scheduleRefresh()
         }.store(in: &subscriptions)
-        // A repeated preflight failure can leave phase == idle and contain the
-        // same text. Count publications so another attempt still shows its error.
-        controller.$lastFailure.dropFirst().sink { [weak self] failure in
-            guard let self, failure != nil else { return }
-            self.failureRevision &+= 1
+        // Repeated attempts still show identical failures. Re-rendering an old
+        // error after a language change does not create another failure event.
+        controller.$failureRevision.dropFirst().sink { [weak self] revision in
+            guard let self else { return }
+            self.failureRevision = revision
             self.scheduleRefresh()
         }.store(in: &subscriptions)
         // The new published value is available before the controller assignment.
@@ -57,12 +73,16 @@ final class DictationHUD {
     /// Demonstrates the display only: no recording, provider request, or controller mutation.
     func showPreview() {
         guard !controller.busy else { return }
-        show(DictationHUDContent(
-            title: "聲波與字幕預覽", message: "",
-            transcript: "這是一段繁體中文與 English 混合的示範文字。說話時，辨識中的文字會顯示在這裡。",
+        show(previewContent(), dismissAfter: 8)
+    }
+
+    private func previewContent() -> DictationHUDContent {
+        DictationHUDContent(
+            title: model.localizer.text("hud.previewTitle", table: "Status"), message: "",
+            transcript: model.localizer.text("hud.previewText", table: "Status"),
             elapsed: 0, level: 0.35, recording: false, connected: false,
             failure: false, preview: true, showTranscript: true
-        ), dismissAfter: 8)
+        )
     }
 
     func close() {
@@ -113,7 +133,7 @@ final class DictationHUD {
 
     private func currentContent(failure: Bool) -> DictationHUDContent {
         DictationHUDContent(
-            title: failure ? "語音輸入未完成" : controller.statusTitle,
+            title: failure ? model.localizer.text("hud.failure", table: "Status") : controller.statusTitle,
             message: failure ? (controller.lastFailure ?? controller.message) : controller.message,
             transcript: controller.liveText, elapsed: controller.elapsed, level: controller.level,
             recording: controller.phase == .recording, connected: controller.liveConnected,
@@ -177,6 +197,7 @@ private struct DictationHUDContent {
 @MainActor
 private final class DictationHUDModel: ObservableObject {
     @Published var content = DictationHUDContent()
+    @Published var localizer = AppLocalizer(language: .english)
     @Published private(set) var levels = Array(repeating: CGFloat.zero, count: DictationWaveform.barCount)
     private var sampledElapsed: TimeInterval = -1
 
@@ -212,6 +233,7 @@ private enum DictationWaveform {
 private struct DictationWaveformView: View {
     let levels: [CGFloat]
     let animate: Bool
+    let localizer: AppLocalizer
 
     var body: some View {
         GeometryReader { geometry in
@@ -234,7 +256,7 @@ private struct DictationWaveformView: View {
         .frame(height: 28)
         .animation(animate ? .linear(duration: 0.1) : nil, value: levels)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("麥克風音量")
+        .accessibilityLabel(localizer.text("hud.microphone", table: "Status"))
         .accessibilityValue("\(Int((levels.last ?? 0) * 100))%")
     }
 }
@@ -242,6 +264,7 @@ private struct DictationWaveformView: View {
 /// Synthetic motion is exclusive to the explicitly labelled, microphone-free preview.
 private struct DictationWaveformPreview: View {
     let reduceMotion: Bool
+    let localizer: AppLocalizer
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 0.1, paused: reduceMotion)) { context in
@@ -250,8 +273,8 @@ private struct DictationWaveformPreview: View {
                 let t = time - Double(DictationWaveform.barCount - index - 1) * 0.1
                 return CGFloat(pow(max(0, sin(t * 2.8)), 2) * (0.4 + 0.6 * abs(sin(t * 7.3))))
             }
-            DictationWaveformView(levels: levels, animate: !reduceMotion)
-                .accessibilityLabel("模擬音量")
+            DictationWaveformView(levels: levels, animate: !reduceMotion, localizer: localizer)
+                .accessibilityLabel(localizer.text("hud.simulated", table: "Status"))
         }
     }
 }
@@ -270,15 +293,15 @@ private struct DictationHUDView: View {
                 Text(content.title).font(.callout.weight(.semibold)).lineLimit(1)
                 Spacer(minLength: 8)
                 if content.recording {
-                    Text(String(format: "%.1fs", content.elapsed)).font(.caption.monospacedDigit())
+                    Text(model.localizer.text("hud.elapsed", table: "Status", arguments: [content.elapsed])).font(.caption.monospacedDigit())
                 } else {
                     Text("OpenInsert").font(.caption).foregroundStyle(.secondary)
                 }
             }
             if content.preview {
-                DictationWaveformPreview(reduceMotion: reduceMotion)
+                DictationWaveformPreview(reduceMotion: reduceMotion, localizer: model.localizer)
             } else if content.recording {
-                DictationWaveformView(levels: model.levels, animate: !reduceMotion)
+                DictationWaveformView(levels: model.levels, animate: !reduceMotion, localizer: model.localizer)
             }
             // Keep recovery notices and the insertion-test countdown, but reserve
             // the dictation area for sound and words instead of shortcut/debug tips.
@@ -289,11 +312,11 @@ private struct DictationHUDView: View {
             }
             if !content.failure && content.showTranscript {
                 HStack {
-                    Text(content.preview ? "模擬音量 · 未啟動麥克風" : "即時轉錄")
+                    Text(model.localizer.text(content.preview ? "hud.previewCaption" : "hud.live", table: "Status"))
                     Spacer()
-                    if content.recording { Text(content.connected ? "未定稿" : "正在連線") }
+                    if content.recording { Text(model.localizer.text(content.connected ? "hud.interim" : "hud.connecting", table: "Status")) }
                 }.font(.caption2).foregroundStyle(.secondary)
-                Text(content.transcript.isEmpty ? "等待辨識文字…" : String(content.transcript.suffix(420)))
+                Text(content.transcript.isEmpty ? model.localizer.text("hud.waiting", table: "Status") : String(content.transcript.suffix(420)))
                     .font(.callout).lineLimit(4).truncationMode(.head)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)

@@ -1,0 +1,16 @@
+"shortcut.title" = "Record a shortcut";
+"shortcut.instructions" = "Press your new shortcut, then click Save. Use Command, Option or Control with a key, or an F1–F20 key. Escape cancels.";
+"shortcut.listening" = "Press a shortcut…";
+"shortcut.candidate" = "New shortcut";
+"shortcut.current" = "Current shortcut: %@";
+"shortcut.privacy" = "Only this foreground sheet captures the combination. Typed text is not stored or sent. Hold and tap behavior stays the same.";
+"shortcut.default" = "Use ⌥ Space";
+"shortcut.recordAgain" = "Record again";
+"shortcut.cancel" = "Cancel";
+"shortcut.save" = "Save";
+"shortcut.validation.unsupportedKey" = "This key is not supported. Choose a regular key or F1–F20.";
+"shortcut.validation.modifierKey" = "Press a regular key together with the modifiers.";
+"shortcut.validation.escapeReserved" = "Escape is reserved for cancelling shortcut recording.";
+"shortcut.validation.modifierRequired" = "Include Command, Option or Control. Function keys F1–F20 can be used alone.";
+"shortcut.validation.unknownModifiers" = "This modifier combination is not supported.";
+"shortcut.registration.error" = "Could not register this shortcut (%d). It may be used by macOS or another app. Your saved shortcut has not changed.";
