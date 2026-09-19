@@ -21,7 +21,7 @@ final class DictationHUD {
     init(controller: DictationController) {
         self.controller = controller
         panel = DictationHUDPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 176),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 176),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false
         )
         panel.isFloatingPanel = true
@@ -149,7 +149,7 @@ final class DictationHUD {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(cursor) })
                 ?? NSScreen.main ?? NSScreen.screens.first else { return }
         let bounds = screen.visibleFrame
-        let width = min(480, max(200, bounds.width - 32))
+        let width = min(400, max(1, bounds.width - 32))
         let rect = NSRect(x: bounds.midX - width / 2, y: bounds.minY + 24, width: width, height: 176)
         if panel.frame != rect { panel.setFrame(rect, display: true) }
     }
@@ -198,7 +198,7 @@ private final class DictationHUDModel: ObservableObject {
 }
 
 private enum DictationWaveform {
-    static let barCount = 31
+    static let barCount = 96
 
     static func amplitude(_ rms: Float) -> CGFloat {
         guard rms.isFinite, rms > 0 else { return 0 }
@@ -214,15 +214,22 @@ private struct DictationWaveformView: View {
     let animate: Bool
 
     var body: some View {
-        HStack(alignment: .center, spacing: 4) {
-            ForEach(levels.indices, id: \.self) { index in
-                Capsule()
-                    .fill(LinearGradient(colors: [Color(red: 0.32, green: 0.88, blue: 0.60),
-                                                   Color(red: 0.10, green: 0.66, blue: 0.40)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .frame(width: 5, height: 3 + 25 * levels[index])
-                    .frame(maxWidth: .infinity)
+        GeometryReader { geometry in
+            // Fixed, dense 2 pt strokes with 2 pt gaps. Narrower screens show
+            // fewer recent samples rather than squeezing the transcript or
+            // stretching the spacing between columns.
+            let count = max(1, min(levels.count, Int((geometry.size.width + 2) / 4)))
+            let visibleLevels = Array(levels.suffix(count))
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(visibleLevels.indices, id: \.self) { index in
+                    Capsule()
+                        .fill(LinearGradient(colors: [Color(red: 0.32, green: 0.88, blue: 0.60),
+                                                       Color(red: 0.10, green: 0.66, blue: 0.40)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .frame(width: 2, height: 2 + 26 * visibleLevels[index])
+                }
             }
+            .frame(width: geometry.size.width, height: 28)
         }
         .frame(height: 28)
         .animation(animate ? .linear(duration: 0.1) : nil, value: levels)
