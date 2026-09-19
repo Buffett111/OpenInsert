@@ -1,4 +1,4 @@
-OpenInsert 0.2.0 — macOS 13 or later
+OpenInsert 0.2.1 — macOS 13 or later
 
 1. Drag OpenInsert.app to Applications.
 2. Open it and configure your own Gemini API key in Connection & Permissions.
@@ -19,6 +19,14 @@ This community build is ad-hoc signed, not Apple Developer ID signed or notarize
 macOS may block a downloaded build. Inspect the source or build locally if needed.
 Do not disable Gatekeeper. See Apple's official instructions if you choose to open it:
 https://support.apple.com/en-us/102445
+
+Updating or rebuilding an ad-hoc build may require granting Accessibility again,
+even when System Settings still shows the old entry enabled. If OpenInsert reports
+permission off, quit old copies, remove the old OpenInsert Accessibility entry,
+and add and enable the currently installed app (normally /Applications/OpenInsert.app).
+Reopen that app and click Recheck Permissions. Connection & Permissions shows the
+running app's path so you can identify the correct copy. OpenInsert never resets
+or grants these system permissions automatically.
 
 Automatic insertion does not work in every app. It never presses Return.
 Results remain available for manual copy if the destination changes or refuses input.

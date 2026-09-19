@@ -1,6 +1,6 @@
 # Privacy / 隱私
 
-This describes OpenInsert 0.2.0. OpenInsert has no product account, developer-operated server, analytics SDK, screenshot capture, OCR, or transcript-history database.
+This describes OpenInsert 0.2.1. OpenInsert has no product account, developer-operated server, analytics SDK, screenshot capture, OCR, or transcript-history database.
 
 ## English
 
@@ -16,6 +16,8 @@ Automatic insertion is blocked while Secure Event Input is active and for newlin
 
 **Your controls:** Recording requires microphone access and an explicit start. Upgrading from 0.1 requires new live-streaming consent; the earlier upload consent is not reused. You can cancel before insertion, clear the last result, delete the key from settings, disable consent, or revoke permissions in System Settings. Even a very short or cancelled recording may already have sent audio; cancellation cannot recall it. Deleting the app does not automatically remove its Keychain entry or preferences; delete the key in settings before uninstalling if desired. Old 0.1 crash leftovers, if any, are not removed by the new memory-only pipeline. OpenInsert does not request Screen Recording permission or install an all-key keyboard event monitor.
 
+**Updates and permissions:** Updating or rebuilding an ad-hoc signed copy can invalidate its previous Accessibility grant. An enabled-looking entry in System Settings may belong to the old build. If needed, remove that entry and add the current installed app; its local path is shown in Connection & Permissions. OpenInsert does not grant, reset, or bypass system permissions automatically.
+
 ## 繁體中文
 
 **雲端處理：** 同意即時雲端處理並主動開始後，原始麥克風音訊會**在說話期間**透過你自己的 API key，直接串流到 Google Gemini 的 `generativelanguage.googleapis.com`。ASR 使用 `gemini-3.5-transcribe-live`、自動語言偵測與自訂詞彙。啟用輕度整理（預設）時，再以獨立的純文字請求，將確定的逐字稿、書寫語言偏好、詞彙與整理指示送至 `gemini-3.5-flash-lite`；逐字模式跳過第二階段。Google 也會收到 IP 位址等連線資訊。OpenInsert 並非離線辨識工具，供應商處理依 [Gemini API 條款](https://ai.google.dev/gemini-api/terms)，付費與未付費服務條件不同。
@@ -29,5 +31,7 @@ WebSocket 與文字整理的 HTTP session 為 ephemeral，停用 URL cache、coo
 Secure Event Input 啟用時會拒絕自動插入；辨識為終端 App 時也拒絕自動插入換行或 tab，但可能無法辨識嵌入其他 App 的終端。OpenInsert 不模擬 Enter，目的 App 仍可能依自身行為對插入文字作出反應。正常結束 App 會先等進行中的插入與剪貼簿恢復處理完成。
 
 **你的控制：** 錄音需要麥克風權限與明確啟動。由 0.1 升級必須重新同意串流，舊的上傳同意不沿用。可在插入前取消、清除最後結果、在設定刪除金鑰、停用同意，或在系統設定撤銷權限。極短或取消的錄音也可能已傳送部分音訊，取消無法收回。直接刪除 App 不會自動移除 Keychain 項目與偏好；若要移除金鑰，請先在設定刪除。新的記憶體管線也不會清除舊版 0.1 崩潰時可能留下的暫存。OpenInsert 不要求螢幕錄製權限，也不安裝監聽所有按鍵的監視器。
+
+**更新與權限：** ad-hoc 簽署的 App 在更新或重新建置後，原有輔助使用授權可能失效；系統設定中看似啟用的項目可能仍對應舊版本。必要時請移除舊項目，重新加入目前安裝的 App；「連線與權限」會顯示本機執行路徑，協助辨識正確副本。OpenInsert 不會自動授權、重設或繞過系統權限。
 
 Implementation details / 實作細節：[ARCHITECTURE.md](ARCHITECTURE.md)。

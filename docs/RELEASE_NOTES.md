@@ -1,4 +1,6 @@
-OpenInsert 0.2.0 is an early macOS release of an MIT-licensed, Gemini BYOK dictation app.
+OpenInsert 0.2.1 is an early macOS release of an MIT-licensed, Gemini BYOK dictation app.
+
+0.2.1 hardens timer cancellation: expired setup/write callbacks cannot affect a later phase, and the late-transcript regression uses a controllable clock. All 46 local XCTest cases pass. See `docs/VALIDATION.md` for the earlier intermittent CI failure and negative-control evidence.
 
 - Option + Space: hold to dictate or tap to toggle.
 - Live ASR with `gemini-3.5-transcribe-live`, matching the model setting observed in Dup 1.20260913.0. See `docs/DUP_MODELS.md` for evidence and limits.

@@ -125,23 +125,93 @@ final class GeminiLiveTests: XCTestCase {
 
     func testTurnCompleteBeforeFinalWaitsForLateFinalAndResetsDrain() async throws {
         let socket = FakeLiveTransport()
-        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: timing)
+        let clock = ManualLiveClock()
+        defer { clock.resolveAll() }
+        let controlled = GeminiLiveTiming(setup: 100, finalization: 200, quietDrain: 1, send: 300)
+        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: controlled, clock: clock)
         try await client.start()
         try await client.sendAudio(pcm)
         socket.onSend = { text in
             if text == GeminiLiveProtocol.activityEnd {
                 socket.push(#"{"serverContent":{"turnComplete":true}}"#)
-                Task {
-                    try? await Task.sleep(nanoseconds: 30_000_000)
-                    socket.push(#"{"serverContent":{"inputTranscription":{"text":"First. "}}}"#)
-                    try? await Task.sleep(nanoseconds: 40_000_000)
-                    socket.push(#"{"serverContent":{"inputTranscription":{"text":"Last."}}}"#)
-                }
             }
         }
-        let result = try await client.finish()
+        let finishing = Task { try await client.finish() }
+        let firstDrain = try await waitForSleep(clock, seconds: 1, ordinal: 1)
+        socket.push(#"{"serverContent":{"inputTranscription":{"text":"First. "}}}"#)
+        let secondDrain = try await waitForSleep(clock, seconds: 1, ordinal: 2)
+        socket.push(#"{"serverContent":{"inputTranscription":{"text":"Last."}}}"#)
+        let lastDrain = try await waitForSleep(clock, seconds: 1, ordinal: 3)
+        // Expiry can already be queued when cancellation happens. Deliver both obsolete
+        // callbacks anyway; only the latest transcript revision is allowed to complete.
+        clock.fire(firstDrain)
+        clock.fire(secondDrain)
+        clock.fire(lastDrain)
+        let result = try await finishing.value
         XCTAssertEqual(result, "First. Last.")
         XCTAssertTrue(socket.cancelled)
+    }
+
+    func testCancelledSetupDeadlineCannotFailFinishingPhase() async throws {
+        let socket = FakeLiveTransport()
+        let clock = ManualLiveClock()
+        defer { clock.resolveAll() }
+        let controlled = GeminiLiveTiming(setup: 100, finalization: 200, quietDrain: 1, send: 300)
+        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: controlled, clock: clock)
+        try await client.start()
+        let setupDeadline = try await waitForSleep(clock, seconds: 100)
+        socket.onSend = { text in
+            if text == GeminiLiveProtocol.activityEnd {
+                socket.push(#"{"serverContent":{"inputTranscription":{"text":"Still valid."},"turnComplete":true}}"#)
+            }
+        }
+        let finishing = Task { try await client.finish() }
+        let drain = try await waitForSleep(clock, seconds: 1)
+        clock.fire(setupDeadline) // Simulates an expiry queued just before cancellation.
+        clock.fire(drain)
+        let result = try await finishing.value
+        XCTAssertEqual(result, "Still valid.")
+    }
+
+    func testCompletedWriteWatchdogCannotCancelANewerWrite() async throws {
+        let socket = FakeLiveTransport()
+        let clock = ManualLiveClock()
+        defer { clock.resolveAll() }
+        let controlled = GeminiLiveTiming(setup: 100, finalization: 200, quietDrain: 1, send: 300)
+        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: controlled, clock: clock)
+        try await client.start()
+        let setupWatchdog = try await waitForSleep(clock, seconds: 300, ordinal: 1)
+        socket.stallAudio = true
+        let sending = Task { try await client.sendAudio(pcm) }
+        _ = try await waitForSleep(clock, seconds: 300, ordinal: 3)
+        clock.fire(setupWatchdog)
+        socket.releaseAudioWrites()
+        try await sending.value
+        socket.onSend = { text in
+            if text == GeminiLiveProtocol.activityEnd {
+                socket.push(#"{"serverContent":{"inputTranscription":{"text":"New write survived."},"turnComplete":true}}"#)
+            }
+        }
+        let finishing = Task { try await client.finish() }
+        let drain = try await waitForSleep(clock, seconds: 1)
+        clock.fire(drain)
+        let result = try await finishing.value
+        XCTAssertEqual(result, "New write survived.")
+    }
+
+    func testSystemClockCancellationReturnsFalseWithoutThrowing() async {
+        let waiting = Task { await GeminiLiveSystemClock().sleep(for: 3_600) }
+        waiting.cancel()
+        let expired = await waiting.value
+        XCTAssertFalse(expired)
+    }
+
+    private func waitForSleep(_ clock: ManualLiveClock, seconds: TimeInterval, ordinal: Int = 1,
+                              file: StaticString = #filePath, line: UInt = #line) async throws -> UUID {
+        let registered = expectation(description: "registered timer \(seconds) #\(ordinal)")
+        clock.observe(seconds: seconds, ordinal: ordinal) { registered.fulfill() }
+        await fulfillment(of: [registered], timeout: 3)
+        return try XCTUnwrap(clock.id(seconds: seconds, ordinal: ordinal), file: file, line: line)
     }
 
     func testTurnCompleteDuringRecordingCannotFinalizeLaterTurn() async throws {
@@ -287,6 +357,80 @@ private final class PreviewLog: @unchecked Sendable {
     func append(_ value: String) { lock.lock(); defer { lock.unlock() }; entries.append(value) }
 }
 
+/// Deliberately retains cancelled waits: fire() models a timer expiry that was already
+/// queued before cancellation. Every test drains remaining continuations in defer.
+private final class ManualLiveClock: @unchecked Sendable, GeminiLiveClock {
+    private struct Entry {
+        let id: UUID
+        let seconds: TimeInterval
+        var waiter: CheckedContinuation<Bool, Never>?
+    }
+    private struct Observer {
+        let seconds: TimeInterval
+        let ordinal: Int
+        let action: @Sendable () -> Void
+    }
+    private let lock = NSLock()
+    private var entries: [Entry] = []
+    private var observers: [Observer] = []
+    private var closed = false
+
+    func sleep(for seconds: TimeInterval) async -> Bool {
+        await withCheckedContinuation { waiter in
+            lock.lock()
+            if closed {
+                lock.unlock()
+                waiter.resume(returning: false)
+                return
+            }
+            entries.append(Entry(id: UUID(), seconds: seconds, waiter: waiter))
+            let ready = observers.filter { observer in
+                entries.filter { $0.seconds == observer.seconds }.count >= observer.ordinal
+            }
+            observers.removeAll { observer in
+                entries.filter { $0.seconds == observer.seconds }.count >= observer.ordinal
+            }
+            lock.unlock()
+            ready.forEach { $0.action() }
+        }
+    }
+
+    func observe(seconds: TimeInterval, ordinal: Int, action: @escaping @Sendable () -> Void) {
+        lock.lock()
+        if entries.filter({ $0.seconds == seconds }).count >= ordinal {
+            lock.unlock()
+            action()
+        } else {
+            observers.append(Observer(seconds: seconds, ordinal: ordinal, action: action))
+            lock.unlock()
+        }
+    }
+
+    func id(seconds: TimeInterval, ordinal: Int) -> UUID? {
+        lock.lock(); defer { lock.unlock() }
+        let matches = entries.filter { $0.seconds == seconds }
+        return matches.count >= ordinal ? matches[ordinal - 1].id : nil
+    }
+
+    func fire(_ id: UUID) {
+        lock.lock()
+        let index = entries.firstIndex { $0.id == id }
+        let waiter = index.flatMap { entries[$0].waiter }
+        if let index { entries[index].waiter = nil }
+        lock.unlock()
+        waiter?.resume(returning: true)
+    }
+
+    func resolveAll() {
+        lock.lock()
+        closed = true
+        let pending = entries.compactMap(\.waiter)
+        for index in entries.indices { entries[index].waiter = nil }
+        lock.unlock()
+        pending.forEach { $0.resume(returning: false) }
+    }
+}
+
 private final class FakeLiveTransport: @unchecked Sendable, GeminiLiveTransport {
     private let lock = NSLock()
     private let autoSetup: Bool
@@ -337,12 +481,24 @@ private final class FakeLiveTransport: @unchecked Sendable, GeminiLiveTransport 
                 if isCancelled {
                     lock.unlock()
                     continuation.resume(throwing: CancellationError())
+                } else if !shouldStallAudio {
+                    lock.unlock()
+                    continuation.resume()
                 } else {
                     sendWaiters.append(continuation)
                     lock.unlock()
                 }
             }
         }
+    }
+
+    func releaseAudioWrites() {
+        lock.lock()
+        shouldStallAudio = false
+        let pending = sendWaiters
+        sendWaiters.removeAll()
+        lock.unlock()
+        for waiter in pending { waiter.resume() }
     }
 
     func receive() async throws -> Data {

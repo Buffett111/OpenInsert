@@ -10,6 +10,7 @@ struct MainView: View {
     @ViewState private var tab = 0
     @ViewState private var keyDraft = ""
     private let accent = Color(red: 0.20, green: 0.64, blue: 0.48)
+    private let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .top, spacing: 14) {
@@ -22,7 +23,7 @@ struct MainView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("MIT · v0.2.0").font(.caption.monospaced()).foregroundStyle(.secondary)
+                Text("MIT · v\(version)").font(.caption.monospaced()).foregroundStyle(.secondary)
                     .padding(.vertical, 6).padding(.horizontal, 10)
                     .background(.quaternary, in: Capsule())
             }
@@ -158,6 +159,16 @@ struct MainView: View {
             Divider()
             permission("麥克風", granted: controller.microphoneGranted, description: "只在你啟動錄音時使用。", action: controller.requestMicrophone)
             permission("輔助使用", granted: controller.accessibilityGranted, description: "把辨識結果放到目前輸入位置；不讀取整份文件。", action: controller.requestAccessibility)
+            if !controller.accessibilityGranted {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("若系統設定已啟用，這裡仍未偵測到權限，更新或重新建置後可能需要移除舊的 OpenInsert 項目，再加入目前這份 App 並啟用，然後重新檢查權限。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("目前執行的 App：").font(.caption.weight(.semibold))
+                    Text(Bundle.main.bundlePath).font(.caption.monospaced())
+                        .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+            }
             Button("重新檢查權限") { controller.refreshPermissions() }
         }
     }
@@ -172,7 +183,7 @@ struct MainView: View {
                 Link("Google API 資料政策 ↗", destination: URL(string: "https://ai.google.dev/gemini-api/terms")!)
                 Link("Gemini 模型文件 ↗", destination: URL(string: "https://ai.google.dev/gemini-api/docs/models")!)
             }
-            Text("OpenInsert 0.2.0 · MIT License\n採用與 Dup 設定相同的 ASR 與文字模型；提示詞與程式由本專案獨立實作。與 Dup 無隸屬關係。")
+            Text("OpenInsert \(version) · MIT License\n採用與 Dup 設定相同的 ASR 與文字模型；提示詞與程式由本專案獨立實作。與 Dup 無隸屬關係。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

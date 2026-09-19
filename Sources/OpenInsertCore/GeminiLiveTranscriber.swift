@@ -17,6 +17,7 @@ public actor GeminiLiveTranscriber {
     private let onPartial: @Sendable (String) -> Void
     private let transport: any GeminiLiveTransport
     private let timing: GeminiLiveTiming
+    private let clock: any GeminiLiveClock
     private var phase = Phase.idle
     private var failure: Error?
     private var transcript = GeminiLiveTranscript()
@@ -25,6 +26,8 @@ public actor GeminiLiveTranscriber {
     private var endDispatched = false
     private var turnComplete = false
     private var revision: UInt64 = 0
+    private var deadlineRevision: UInt64 = 0
+    private var activeWrite: UUID?
     private var startWaiter: CheckedContinuation<Void, Error>?
     private var finishWaiter: CheckedContinuation<String, Error>?
     private var receiver: Task<Void, Never>?
@@ -48,6 +51,7 @@ public actor GeminiLiveTranscriber {
         self.onPartial = onPartial
         self.transport = GeminiNativeLiveTransport()
         self.timing = GeminiLiveTiming()
+        self.clock = GeminiLiveSystemClock()
     }
 
     /// Internal transport injection exercises the same state machine without credentials/network.
@@ -58,6 +62,7 @@ public actor GeminiLiveTranscriber {
         vocabulary: [String] = [],
         transport: any GeminiLiveTransport,
         timing: GeminiLiveTiming = GeminiLiveTiming(),
+        clock: any GeminiLiveClock = GeminiLiveSystemClock(),
         onPartial: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.apiKey = apiKey
@@ -67,6 +72,7 @@ public actor GeminiLiveTranscriber {
         self.onPartial = onPartial
         self.transport = transport
         self.timing = timing
+        self.clock = clock
     }
 
     public func start() async throws {
@@ -161,24 +167,39 @@ public actor GeminiLiveTranscriber {
     private func enqueue(_ message: String, marksEnd: Bool = false) async throws {
         let previous = sendTail
         let sendTimeout = timing.send
-        let next = Task { [weak self, transport] in
+        let next = Task { [weak self, transport, clock] in
             if let previous { try await previous.value }
             try Task.checkCancellation()
+            let writeID = UUID()
+            await self?.beginWrite(writeID)
             // A stalled write must not prevent the microphone drain from reaching finish().
             let watchdog = Task { [weak self] in
-                do { try await Task.sleep(nanoseconds: UInt64(sendTimeout * 1_000_000_000)) }
-                catch { return }
-                await self?.fail(GeminiLiveError.network)
+                guard await clock.sleep(for: sendTimeout) else { return }
+                await self?.writeTimedOut(writeID)
             }
-            defer { watchdog.cancel() }
-            if marksEnd { await self?.markEndDispatched() }
-            try await transport.send(message)
+            do {
+                if marksEnd { await self?.markEndDispatched() }
+                try await transport.send(message)
+                await self?.endWrite(writeID)
+                watchdog.cancel()
+            } catch {
+                await self?.endWrite(writeID)
+                watchdog.cancel()
+                throw error
+            }
         }
         sendTail = next
         try await next.value
     }
 
     private func markEndDispatched() { endDispatched = true }
+
+    private func beginWrite(_ id: UUID) { activeWrite = id }
+    private func endWrite(_ id: UUID) { if activeWrite == id { activeWrite = nil } }
+    private func writeTimedOut(_ id: UUID) {
+        guard activeWrite == id else { return }
+        fail(GeminiLiveError.network)
+    }
 
     private func beginReceiving() {
         guard phase == .starting else { return }
@@ -239,20 +260,31 @@ public actor GeminiLiveTranscriber {
     private func ready() {
         guard phase == .starting else { return }
         phase = .streaming
-        deadline?.cancel()
-        deadline = nil
+        cancelDeadline()
         let waiter = startWaiter
         startWaiter = nil
         waiter?.resume()
     }
 
     private func installDeadline(after seconds: TimeInterval, error: GeminiLiveError) {
-        deadline?.cancel()
-        deadline = Task { [weak self] in
-            do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
-            catch { return }
-            await self?.fail(error)
+        cancelDeadline()
+        let expectedRevision = deadlineRevision
+        deadline = Task { [weak self, clock] in
+            guard await clock.sleep(for: seconds) else { return }
+            await self?.deadlineExpired(revision: expectedRevision, error: error)
         }
+    }
+
+    private func cancelDeadline() {
+        // Cancellation alone cannot retract a timer callback already queued on the actor.
+        deadlineRevision &+= 1
+        deadline?.cancel()
+        deadline = nil
+    }
+
+    private func deadlineExpired(revision expected: UInt64, error: GeminiLiveError) {
+        guard deadlineRevision == expected else { return }
+        fail(error)
     }
 
     private func scheduleDrain() {
@@ -260,9 +292,8 @@ public actor GeminiLiveTranscriber {
         guard turnComplete, !transcript.hasInterim else { return }
         let expectedRevision = revision
         let interval = timing.quietDrain
-        drain = Task { [weak self] in
-            do { try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000)) }
-            catch { return }
+        drain = Task { [weak self, clock] in
+            guard await clock.sleep(for: interval) else { return }
             await self?.completeIfQuiet(revision: expectedRevision)
         }
     }
@@ -297,7 +328,8 @@ public actor GeminiLiveTranscriber {
     }
 
     private func close() {
-        deadline?.cancel(); deadline = nil
+        cancelDeadline()
+        activeWrite = nil
         drain?.cancel(); drain = nil
         starter?.cancel(); starter = nil
         finalizer?.cancel(); finalizer = nil
@@ -342,6 +374,57 @@ struct GeminiLiveTiming: Sendable {
     var finalization: TimeInterval = 20
     var quietDrain: TimeInterval = 1
     var send: TimeInterval = 10
+}
+
+/// A delay reports cancellation as data, so normal timer replacement never throws from a
+/// background task. The state machine also rejects stale callbacks after an expiry/cancel race.
+protocol GeminiLiveClock: Sendable {
+    func sleep(for seconds: TimeInterval) async -> Bool
+}
+
+struct GeminiLiveSystemClock: GeminiLiveClock {
+    func sleep(for seconds: TimeInterval) async -> Bool {
+        let delay = GeminiLiveDelay()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { delay.start(seconds: seconds, continuation: $0) }
+        } onCancel: {
+            delay.resolve(false)
+        }
+    }
+}
+
+private final class GeminiLiveDelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private var outcome: Bool?
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var work: DispatchWorkItem?
+
+    func start(seconds: TimeInterval, continuation: CheckedContinuation<Bool, Never>) {
+        lock.lock()
+        if let outcome {
+            lock.unlock()
+            continuation.resume(returning: outcome)
+            return
+        }
+        self.continuation = continuation
+        let work = DispatchWorkItem { [weak self] in self?.resolve(true) }
+        self.work = work
+        lock.unlock()
+        DispatchQueue.global().asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    func resolve(_ value: Bool) {
+        lock.lock()
+        guard outcome == nil else { lock.unlock(); return }
+        outcome = value
+        let waiter = continuation
+        continuation = nil
+        let scheduled = work
+        work = nil
+        lock.unlock()
+        scheduled?.cancel()
+        waiter?.resume(returning: value)
+    }
 }
 
 enum GeminiLiveProtocol {

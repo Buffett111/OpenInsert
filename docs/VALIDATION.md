@@ -1,6 +1,6 @@
 # 驗證紀錄
 
-記錄日期：2026-09-19；目前版本：0.2.0。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與 0.1 歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+記錄日期：2026-09-19；目前版本：0.2.1。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與 0.1 歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
 
 ## 0.2 即時串流管線
 
@@ -9,12 +9,16 @@
 | 項目 | 狀態 | 證據與範圍 |
 | --- | --- | --- |
 | 0.2 原生／universal build 與 release 產物 | **Passed** | 原生編譯、x86_64／arm64 universal 交叉編譯通過；兩者 minimum macOS 13.0。ZIP 解壓測試、DMG checksum、SHA-256 及 codesign strict verification 通過；ad-hoc 簽章，尚未公證 |
-| Live transport 與文字整理單元測試 | **Passed：43／43** | 實際 XCTest runner：23 個 GeminiClient 測試（含 text-only cleanup 與繁中字形）及 20 個 Live 測試；涵蓋 setup、manual VAD、PCM、interim／final、完成等待、錯誤及取消。fake transport 不等於真實 API |
+| Live transport 與文字整理單元測試 | **Passed：46／46** | 0.2.1 實際 XCTest runner：23 個 GeminiClient 測試（含 text-only cleanup 與繁中字形）及 23 個 Live 測試；涵蓋 setup、manual VAD、PCM、interim／final、完成等待、錯誤、取消與失效計時器。fake transport 不等於真實 API |
 | PCM 轉換與 buffer 驗證 | **Passed：15／15** | `./scripts/test-audio.sh`；8／16／44.1／48／96 kHz、單／雙聲道合成 440 Hz 訊號轉為 16 kHz mono；100 ms 分塊、尾端排空、來源緩衝區複製、溢位失敗、取消，以及訂閱前 12 秒資料保留 |
 | 0.2 原生 UI | **Passed（初始狀態）** | 實際啟動 0.2.0，以 AX 與畫面確認 ⌥ Space、兩個正確模型欄位、未設定 key、串流同意預設關閉及尚未授權狀態；不代表錄音／插入成功 |
 | 升級與其他作業系統 | **Pending** | 舊自訂模型／同意遷移的完整情境、Intel 實機與 macOS 13 實機；目前只在 arm64 macOS 27 執行 |
 | 真實 Google Live ASR 與 Flash Lite 整理 | **Pending** | 使用自備 key 與明確同意；尤其 turnComplete + 1 秒 quiet heuristic 的真實完成行為及 late final |
 | 麥克風、全域快捷鍵與跨 App 插入 | **Pending** | 真正錄音、取消、焦點、AX／剪貼簿、終端及權限流程 |
+
+0.2.0 的本機 43 個測試通過，但同一 commit 的兩個 GitHub 工作有不同結果：一個全數通過，另一個 late-final 測試回報 `CancellationError`。僅憑紀錄不能確定原始原因。0.2.1 改用不拋錯的可取消時鐘、以 generation／write identity 拒絕失效計時器回呼，並把 late-final 測試改成可控制時鐘。另在暫存副本移除兩個保護後，兩個新回歸測試確實分別以 setup timeout／network error 失敗；沒有以重跑掩蓋失敗。
+
+本機亦重現 ad-hoc 重建造成的輔助使用授權不匹配：系統設定的開關開啟，`AXIsProcessTrusted()` 卻為 false；TCC 紀錄顯示 `Failed to match existing code requirement`，保存的 cdhash 與新執行檔不同。重新啟動或刷新 UI 不會修正這種不匹配；必須對目前安裝版本重新授權。這不是 API key 或麥克風權限錯誤。
 
 ## 0.1.0 歷史驗證
 
