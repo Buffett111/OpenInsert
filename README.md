@@ -22,7 +22,7 @@ An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Buil
 - Stores the API key in macOS Keychain. No transcription history, analytics, developer backend, screenshots, OCR, or screen recording permission.
 - Accepts opaque Google API key strings, including dotted `AQ.` forms and keys longer than the old 256-character limit. Local checks catch unsafe paste characters before opening the microphone; Google still determines whether the key is authorized.
 
-There is no guarantee that every editor accepts automatic insertion. Secure fields are excluded. A missing Accessibility selection range limits cursor-change detection, and a paste request has no OS delivery receipt. A user confirmed the 0.2.4 fixed paste test in the affected ChatGPT/Codex desktop input, but the internal, unreleased 0.2.5 still failed to obtain that editor's focused element during later dictation. Version 0.2.6 revises accessibility initialization for apps exposing the supported capability and a narrowly identified Chromium app class; actual editor compatibility remains unverified. It reads no input content. Known terminal apps reject automatic multiline/tab insertion because terminals can execute pasted newlines; embedded terminals and unknown apps need separate testing.
+There is no guarantee that every editor accepts automatic insertion. Secure fields are excluded. A missing Accessibility selection range limits cursor-change detection, and a paste request has no OS delivery receipt. A user confirmed the 0.2.4 fixed paste test in the affected ChatGPT/Codex desktop input, but the internal, unreleased 0.2.5 still failed to obtain that editor's focused element during later dictation. Version 0.2.6 revises accessibility initialization for apps exposing the supported capability and a narrowly identified Chromium app class. The user has now confirmed a successful spoken dictation directly into the affected ChatGPT/Codex input on 0.2.6; repeated restarts and compatibility with other editors remain unverified. It reads no input content. Known terminal apps reject automatic multiline/tab insertion because terminals can execute pasted newlines; embedded terminals and unknown apps need separate testing.
 
 ## Download and setup
 
@@ -94,9 +94,9 @@ OpenInsert 0.2.6 是支援多語言混用（code-switching）的開源 macOS 語
 
 後修使用 minimal thinking，最多等待 8 秒，可按「略過後修，直接使用辨識結果」。略過或遇到逾時、網路、429／5xx 等暫時錯誤時，會明確告知改用已定稿 ASR，並經相同的焦點檢查後插入。取消整次工作、永久錯誤、被拒絕或不完整的回覆不觸發自動插入；未定稿預覽永遠不會升格使用。介面分開顯示 ASR 收尾與後修時間。
 
-自 0.2.4 起統一使用剪貼簿加 Command-V，先透過 AX 驗證原輸入位置，再請求標準貼上。啟用剪貼簿恢復時，等待 800 ms 後只在仍持有同一剪貼簿版本時恢復。狀態只表示已請求貼上，沒有系統收件證明，也不會再用 AX 寫入重試。使用者曾確認 0.2.4 固定測試句能出現在 ChatGPT／Codex 桌面輸入框，但未發布的內部 0.2.5 仍在後續語音測試遇到焦點缺值。0.2.6 改依實際能力初始化 AX，並加入限於特定 Chromium App class 的初始化路徑，不讀輸入內容；實機效果仍待驗證，不能將這個 App 簡化為只改名的 Electron。
+自 0.2.4 起統一使用剪貼簿加 Command-V，先透過 AX 驗證原輸入位置，再請求標準貼上。啟用剪貼簿恢復時，等待 800 ms 後只在仍持有同一剪貼簿版本時恢復。狀態只表示已請求貼上，沒有系統收件證明，也不會再用 AX 寫入重試。使用者曾確認 0.2.4 固定測試句能出現在 ChatGPT／Codex 桌面輸入框，但未發布的內部 0.2.5 仍在後續語音測試遇到焦點缺值。0.2.6 改依實際能力初始化 AX，並加入限於特定 Chromium App class 的初始化路徑，不讀輸入內容；使用者已確認 0.2.6 語音文字成功直接進入該 ChatGPT／Codex 輸入框；重啟後的重複測試及其他 App 相容性仍待驗證。
 
-目前版本包含內部 0.2.5 加入的自動複製：完成的語音輸入沒有有效目標，或貼上事件送出前遇到可回退的插入錯誤時，會自動複製已定稿結果，浮動字幕明確顯示已複製；直接按 Command-V 即可使用，不必再開啟 OpenInsert。這會取代目前剪貼簿內容並持續保留，即使啟用「恢復剪貼簿」也不恢復舊內容；正常貼上仍沿用 800 ms 條件式恢復。取消、尚未定稿、供應商永久錯誤，以及剪貼簿已變更／無法備份／寫入失敗，都不會再次自動複製；已請求貼上後也不會重複複製。只有剪貼簿寫入成功才顯示已複製，失敗則顯示錯誤並保留 App 中的結果。固定句的自動複製與手動貼上已通過單次獨立測試；新版直接插入及剪貼簿還原仍待確認，詳見驗證紀錄。
+目前版本包含內部 0.2.5 加入的自動複製：完成的語音輸入沒有有效目標，或貼上事件送出前遇到可回退的插入錯誤時，會自動複製已定稿結果，浮動字幕明確顯示已複製；直接按 Command-V 即可使用，不必再開啟 OpenInsert。這會取代目前剪貼簿內容並持續保留，即使啟用「恢復剪貼簿」也不恢復舊內容；正常貼上仍沿用 800 ms 條件式恢復。取消、尚未定稿、供應商永久錯誤，以及剪貼簿已變更／無法備份／寫入失敗，都不會再次自動複製；已請求貼上後也不會重複複製。只有剪貼簿寫入成功才顯示已複製，失敗則顯示錯誤並保留 App 中的結果。固定句的自動複製與手動貼上已通過單次獨立測試，ChatGPT 直接插入也已有使用者確認；剪貼簿還原與其他相容性測試仍待完成，詳見驗證紀錄。
 
 浮動字幕會在其他 App 保持焦點時顯示即時文字、處理狀態與錯誤，不搶游標，也不攔截滑鼠點擊。「預覽浮動字幕」只顯示合成範例，不錄音、不連線、不插入。0.2.2 也修正含句點及較長金鑰被本機誤拒的問題；請完整貼上 Google 提供的 key。錄音前的檢查只確認能安全放入 HTTP header，不能證明 Google 已授權或額度足夠。
 
