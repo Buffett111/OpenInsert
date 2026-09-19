@@ -4,9 +4,9 @@
 
 An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Built for **multilingual dictation and code-switching**, with editable writing-language preferences. Native Swift, no third-party package dependencies, no OpenInsert account, no screen capture.
 
-**Early release 0.2.7:** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
+**Early release 0.3.0:** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
 
-The 0.3.0 source adds switchable English/Traditional Chinese interfaces and recorded custom shortcuts. It also includes the compact green microphone waveform introduced in 0.2.8. Published downloads below remain 0.2.7 until the next release.
+Version 0.3.0 adds switchable English/Traditional Chinese interfaces and recorded custom shortcuts. It also includes the compact green microphone waveform introduced in 0.2.8.
 
 [繁體中文說明](#繁體中文快速開始) · [Detailed survey](docs/SURVEY.md) · [Dup model evidence](docs/DUP_MODELS.md) · [Architecture](docs/ARCHITECTURE.md) · [Privacy](docs/PRIVACY.md)
 
@@ -29,7 +29,7 @@ There is no guarantee that every editor accepts automatic insertion. Secure fiel
 
 ## Download and setup
 
-Get published `.dmg` or `.zip` builds from [Releases](https://github.com/Buffett111/OpenInsert/releases). [Version 0.2.7](https://github.com/Buffett111/OpenInsert/releases/tag/v0.2.7) includes the latest clipboard and input compatibility fixes. Universal builds contain Apple Silicon and Intel executables. macOS 13 or newer is required.
+Get published `.dmg` or `.zip` builds from [Releases](https://github.com/Buffett111/OpenInsert/releases). [Version 0.3.0](https://github.com/Buffett111/OpenInsert/releases/tag/v0.3.0) includes interface language switching, custom shortcuts and the compact waveform, alongside the clipboard and input compatibility fixes. Universal builds contain Apple Silicon and Intel executables. macOS 13 or newer is required.
 
 1. Move `OpenInsert.app` to Applications and open it.
 2. Quit Dup or another app that already owns Option + Space.
@@ -91,9 +91,9 @@ Build scripts use project-local caches. In an environment that forbids nested `s
 
 ## 繁體中文快速開始
 
-OpenInsert 0.2.7 是支援多語言混用（code-switching）的開源 macOS 語音輸入工具，目前提供 early release。預設 **Option + Space**：按住至少 0.35 秒說話、放開完成；也可短按開始、再按一次結束。說話時透過你自己的 Gemini API key，將音訊直接串流到 **Gemini 3.5 Transcribe Live**。選擇輕度整理時，確定的逐字稿再交給 **Gemini 3.5 Flash Lite**；逐字模式跳過這一步。
+OpenInsert 0.3.0 是支援多語言混用（code-switching）的開源 macOS 語音輸入工具，目前提供 early release。預設 **Option + Space**：按住至少 0.35 秒說話、放開完成；也可短按開始、再按一次結束。說話時透過你自己的 Gemini API key，將音訊直接串流到 **Gemini 3.5 Transcribe Live**。選擇輕度整理時，確定的逐字稿再交給 **Gemini 3.5 Flash Lite**；逐字模式跳過這一步。
 
-0.3.0 原始碼另提供繁體中文／English 介面切換，與「文字語言偏好」分開；新增翻譯可參閱[本地化指南](docs/LOCALIZATION.md)。「辨識偏好」可直接按鍵錄製自訂快捷鍵，預設仍為 Option + Space；只有成功註冊才儲存，取消不變更原設定。
+0.3.0 提供繁體中文／English 介面切換，與「文字語言偏好」分開；新增翻譯可參閱[本地化指南](docs/LOCALIZATION.md)。「辨識偏好」可直接按鍵錄製自訂快捷鍵，預設仍為 Option + Space；只有成功註冊才儲存，取消不變更原設定。
 
 第一次使用請在「連線與權限」儲存 API key、同意即時音訊串流與可選文字整理、開啟麥克風與輔助使用權限，並先結束 Dup 避免快捷鍵衝突。由 0.1 升級需要重新同意。「文字語言偏好」可選繁體中文（台灣）、自動、簡體中文、English、日本語、韓語或自訂。ASR 仍自動偵測語言；繁／簡選項在本機轉換中文字形（含即時字幕），保留原本的多語言混用，不要求翻譯。
 
@@ -117,6 +117,6 @@ OpenInsert 0.2.7 是支援多語言混用（code-switching）的開源 macOS 語
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Useful next steps include a measured cross-app insertion matrix, configurable clipboard restore timing, English UI localization, a local transcription provider, and a notarized distribution channel. Windows/Linux are not implemented.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Useful next steps include a measured cross-app insertion matrix, configurable clipboard restore timing, additional interface translations, a local transcription provider, and a notarized distribution channel. Windows/Linux are not implemented.
 
 MIT License. Independently implemented; not affiliated with Dup or the surveyed projects.
