@@ -1,6 +1,17 @@
 # 驗證紀錄
 
-記錄日期：2026-09-19；目前版本：0.2.2。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與 0.1 歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+記錄日期：2026-09-19；目前版本：0.2.3。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+
+## 0.2.3 收尾、後修、語言與放鍵修正
+
+- **真實 Google 辨識與後修成功**：從本機 App 的 `--diagnose-pipeline` 執行與 UI 按鈕相同的固定句路徑。系統語音在記憶體中合成約 7.63 秒繁中／英文混合測試句，送至 `gemini-3.5-transcribe-live`，再用 `gemini-3.5-flash-lite` 整理。連線 **0.37 秒**、停止送音後 ASR 收尾 **1.37 秒**、後修 **0.90 秒**。這是一次固定句測量，不代表所有網路／句長的延遲。
+- 收尾收到 **1 段 authoritative final，沒有 `turnComplete`**，新規則仍成功完成；這是舊規則會等到逾時的真實服務事件組合。未定稿文字沒有被升格。結果含繁體中文；測試句的 OpenInsert 名稱被辨識成 `open insert`，此測試不宣稱專有名詞或辨識品質完美。
+- 上述診斷**沒有開麥克風、沒有擷取輸入位置、沒有插入文字**，沒有讀出 Keychain 金鑰；發送的是固定合成句與空詞彙。合成器獨立 harness 另確認 244,050 bytes 的 16 kHz mono Int16 PCM 與非零振幅。
+- 實際 XCTest **88／88 通過**（後修／HTTP 30、Live 28、語言 9、原有手勢 6、金鑰 4、放鍵 recovery 7、輔助介面準備狀態 4）。涵蓋 final-only 收尾、未解 interim 不完成、metadata-only 不清除 interim、8 秒總期限的縮時取消測試、晚到回覆、語言遷移、放鍵順序及無法判定時的取消。
+- 原生／universal 編譯與 macOS 13 typecheck 通過。使用者確認能看見已安裝 0.2.3 主畫面；本次 UI 自動化對該視窗持續逾時，未將此工具問題說成 App 當機。程序取樣顯示主執行緒正常等待事件。
+- 使用者另回報無法取得 Codex 輸入位置，並確認 OpenInsert 的輔助使用仍顯示「啟用」；當前缺少授權是已確認因素。新版保留 capture 錯誤供 UI 說明。Codex 目標相容性、實體長按／短按及真實麥克風整合仍需手動驗證，合成診斷不能取代。
+
+本機改以既有 Apple Development 憑證簽署，指定需求依 app identifier 與簽章憑證辨識；兩次包含程式修改的重建之 designated requirement 相同且不含 cdhash。最終版已安裝至 `/Applications/OpenInsert.app`，strict codesign 驗證通過；依使用者先前同意，僅清除本 App 舊 Accessibility 紀錄，未重設麥克風。重新授權與新版實際插入尚待解鎖 Mac 後確認。這不是 Developer ID 或 notarization；公開 CI 仍不含本機憑證、採 ad-hoc community build。
 
 ## 0.2.2 快捷鍵、金鑰與浮動字幕修正
 

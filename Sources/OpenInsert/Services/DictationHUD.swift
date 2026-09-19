@@ -102,7 +102,7 @@ final class DictationHUD {
             transcript: controller.liveText, elapsed: controller.elapsed, level: controller.level,
             recording: controller.phase == .recording, connected: controller.liveConnected,
             failure: failure, preview: false,
-            showTranscript: controller.phase == .preparing || controller.phase == .recording || controller.phase == .transcribing
+            showTranscript: controller.phase == .preparing || controller.phase == .recording || controller.phase == .transcribing || (controller.phase == .testing && controller.testingPipeline)
         )
     }
 

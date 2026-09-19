@@ -5,6 +5,7 @@ dist/
 *.xcuserstate
 .env
 .env.*
+.local-signing-identity
 *.p12
 *.p8
 *.mobileprovision

@@ -4,12 +4,15 @@ import Foundation
 ///
 /// `inputTranscription` contains committed segments; `interimInputTranscription` replaces a
 /// speculative preview. Google's wire documentation does not guarantee input transcription
-/// ordering relative to `turnComplete`. Finalization therefore uses an explicitly bounded
-/// heuristic: after activityEnd, require turnComplete and 1 second with no transcription
-/// updates, with no unresolved interim text. A 20-second deadline fails closed.
+/// ordering relative to `turnComplete`. The dedicated gemini-3.5-transcribe-live model
+/// finalizes from authoritative inputTranscription, without requiring the conversational
+/// model's turnComplete event. After activityEnd is successfully sent, wait 1 second with
+/// no transcription updates and no unresolved interim text. Other models also require
+/// turnComplete. This bounded quiet-drain policy is a heuristic, not a protocol guarantee.
+/// A 20-second deadline fails closed; interim text is never promoted to a final result.
 /// See https://ai.google.dev/gemini-api/docs/live-api/live-transcribe and /api/live.
 public actor GeminiLiveTranscriber {
-    private enum Phase { case idle, starting, streaming, finishing, complete, failed, cancelled }
+    private enum Phase: String { case idle, starting, streaming, finishing, complete, failed, cancelled }
     private let apiKey: String
     private let model: String
     private let languageCodes: [String]
@@ -24,7 +27,16 @@ public actor GeminiLiveTranscriber {
     private var result: String?
     private var sentAudioBytes = 0
     private var endDispatched = false
+    private var endSent = false
     private var turnComplete = false
+    private var finalSegmentCount = 0
+    private var interimUpdateCount = 0
+    private var inputFinishedReceived = false
+    private var startedAt: TimeInterval?
+    private var finishStartedAt: TimeInterval?
+    private var endedAt: TimeInterval?
+    private var firstFinalAt: TimeInterval?
+    private var lastFinalAt: TimeInterval?
     private var revision: UInt64 = 0
     private var deadlineRevision: UInt64 = 0
     private var activeWrite: UUID?
@@ -81,6 +93,7 @@ public actor GeminiLiveTranscriber {
         let request = try GeminiLiveProtocol.request(apiKey: apiKey)
         let setup = try GeminiLiveProtocol.setup(model: model, languageCodes: languageCodes, vocabulary: vocabulary)
         phase = .starting
+        startedAt = ProcessInfo.processInfo.systemUptime
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 startWaiter = continuation
@@ -148,6 +161,7 @@ public actor GeminiLiveTranscriber {
         if let result, phase == .complete { return result }
         guard phase == .streaming else { throw failure ?? GeminiLiveError.invalidState }
         phase = .finishing
+        finishStartedAt = ProcessInfo.processInfo.systemUptime
         turnComplete = false
         return try await withTaskCancellationHandler {
             let final = try await withCheckedThrowingContinuation { continuation in
@@ -169,8 +183,9 @@ public actor GeminiLiveTranscriber {
     }
 
     public func cancel() async {
-        guard phase != .complete && phase != .cancelled else { return }
+        guard phase != .complete && phase != .cancelled && phase != .failed else { return }
         phase = .cancelled
+        if endedAt == nil { endedAt = ProcessInfo.processInfo.systemUptime }
         failure = CancellationError()
         releaseWaiters(throwing: CancellationError())
         close()
@@ -192,6 +207,7 @@ public actor GeminiLiveTranscriber {
             do {
                 if marksEnd { await self?.markEndDispatched() }
                 try await transport.send(message)
+                if marksEnd { await self?.markEndSent() }
                 await self?.endWrite(writeID)
                 watchdog.cancel()
             } catch {
@@ -205,6 +221,44 @@ public actor GeminiLiveTranscriber {
     }
 
     private func markEndDispatched() { endDispatched = true }
+
+    private func markEndSent() {
+        guard phase == .finishing else { return }
+        endSent = true
+        // A final may have arrived before release or before send() returned. Its quiet
+        // interval must still start after the successful activityEnd write.
+        revision &+= 1
+        scheduleDrain()
+    }
+
+    /// Contains event counts, flags and monotonic durations only; never transcription,
+    /// audio, vocabulary, API keys, URLs, or remote error bodies.
+    public func diagnostics() -> GeminiLiveDiagnostics {
+        let now = endedAt ?? ProcessInfo.processInfo.systemUptime
+        return GeminiLiveDiagnostics(
+            phase: phase.rawValue,
+            usesTranscriptCompletion: usesTranscriptCompletion,
+            finalSegmentCount: finalSegmentCount,
+            interimUpdateCount: interimUpdateCount,
+            hasInterim: transcript.hasInterim,
+            activityEndSent: endSent,
+            turnComplete: turnComplete,
+            inputFinishedReceived: inputFinishedReceived,
+            sessionElapsed: startedAt.map { max(0, now - $0) },
+            finishElapsed: finishStartedAt.map { max(0, now - $0) },
+            firstFinalElapsed: startedAt.flatMap { start in firstFinalAt.map { max(0, $0 - start) } },
+            lastFinalElapsed: startedAt.flatMap { start in lastFinalAt.map { max(0, $0 - start) } }
+        )
+    }
+
+    private var usesTranscriptCompletion: Bool {
+        model.trimmingCharacters(in: .whitespacesAndNewlines) == "gemini-3.5-transcribe-live"
+    }
+
+    private var canFinalize: Bool {
+        guard endSent, !transcript.hasInterim else { return false }
+        return usesTranscriptCompletion ? finalSegmentCount > 0 : turnComplete
+    }
 
     private func beginWrite(_ id: UUID) { activeWrite = id }
     private func endWrite(_ id: UUID) { if activeWrite == id { activeWrite = nil } }
@@ -256,6 +310,14 @@ public actor GeminiLiveTranscriber {
         }
         do {
             let changed = try transcript.consume(event)
+            let now = ProcessInfo.processInfo.systemUptime
+            if event.finalText != nil {
+                finalSegmentCount += 1
+                firstFinalAt = firstFinalAt ?? now
+                lastFinalAt = now
+            }
+            if event.interimText != nil { interimUpdateCount += 1 }
+            if event.inputFinished { inputFinishedReceived = true }
             if changed { onPartial(transcript.preview) }
             if phase == .finishing && endDispatched {
                 if event.turnComplete { turnComplete = true }
@@ -301,7 +363,7 @@ public actor GeminiLiveTranscriber {
 
     private func scheduleDrain() {
         drain?.cancel()
-        guard turnComplete, !transcript.hasInterim else { return }
+        guard canFinalize else { return }
         let expectedRevision = revision
         let interval = timing.quietDrain
         drain = Task { [weak self, clock] in
@@ -311,11 +373,12 @@ public actor GeminiLiveTranscriber {
     }
 
     private func completeIfQuiet(revision expected: UInt64) {
-        guard phase == .finishing, endDispatched, turnComplete, revision == expected, !transcript.hasInterim else { return }
+        guard phase == .finishing, canFinalize, revision == expected else { return }
         let text = transcript.committed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { fail(GeminiLiveError.emptyTranscript); return }
         result = text
         phase = .complete
+        endedAt = ProcessInfo.processInfo.systemUptime
         let waiter = finishWaiter
         finishWaiter = nil
         close()
@@ -325,6 +388,7 @@ public actor GeminiLiveTranscriber {
     private func fail(_ error: Error) {
         guard phase != .complete && phase != .failed && phase != .cancelled else { return }
         phase = .failed
+        endedAt = ProcessInfo.processInfo.systemUptime
         failure = error
         releaseWaiters(throwing: error)
         close()
@@ -356,6 +420,21 @@ public actor GeminiLiveTranscriber {
         if (error as? URLError)?.code == .cancelled { return CancellationError() }
         return GeminiLiveError.network
     }
+}
+
+public struct GeminiLiveDiagnostics: Sendable, Equatable {
+    public let phase: String
+    public let usesTranscriptCompletion: Bool
+    public let finalSegmentCount: Int
+    public let interimUpdateCount: Int
+    public let hasInterim: Bool
+    public let activityEndSent: Bool
+    public let turnComplete: Bool
+    public let inputFinishedReceived: Bool
+    public let sessionElapsed: TimeInterval?
+    public let finishElapsed: TimeInterval?
+    public let firstFinalElapsed: TimeInterval?
+    public let lastFinalElapsed: TimeInterval?
 }
 
 public enum GeminiLiveError: Error, LocalizedError, Equatable {
@@ -505,6 +584,7 @@ struct GeminiLiveEvent: Sendable {
     var interrupted = false
     var rejected = false
     var goAway = false
+    var inputFinished = false
 
     static func decode(_ data: Data) throws -> Self {
         guard data.count <= 262_144 else { throw GeminiLiveError.oversizedResponse }
@@ -521,6 +601,10 @@ struct GeminiLiveEvent: Sendable {
         if let rawContent = json["serverContent"] {
             guard let content = rawContent as? [String: Any] else { throw GeminiLiveError.invalidResponse }
             result.finalText = try textField(content["inputTranscription"])
+            // The official SDK exposes optional Transcription.finished, but the wire
+            // reference and Transcribe Live guide do not promise to emit it. Record it
+            // for diagnostics; it is not a session barrier or permission to use interim.
+            result.inputFinished = (content["inputTranscription"] as? [String: Any])?["finished"] as? Bool ?? false
             result.interimText = try textField(content["interimInputTranscription"])
             result.turnComplete = content["turnComplete"] as? Bool ?? false
             result.interrupted = content["interrupted"] as? Bool ?? false
@@ -536,7 +620,9 @@ struct GeminiLiveEvent: Sendable {
             guard let text = text as? String else { throw GeminiLiveError.invalidResponse }
             return text
         }
-        return ""
+        // A metadata-only {finished:true} event is not an empty finalized segment and
+        // must not clear an unresolved interim hypothesis.
+        return nil
     }
 }
 

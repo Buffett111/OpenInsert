@@ -6,7 +6,8 @@ import OpenInsertCore
     private let defaults = UserDefaults.standard
     @Published var model: String { didSet { defaults.set(model, forKey: "model") } }
     @Published var asrModel: String { didSet { defaults.set(asrModel, forKey: "asrModel") } }
-    @Published var language: String { didSet { defaults.set(language, forKey: "language") } }
+    @Published var languageSelection: DictationLanguage { didSet { persistLanguage() } }
+    @Published var customLanguage: String { didSet { persistLanguage() } }
     @Published var vocabulary: String { didSet { defaults.set(vocabulary, forKey: "vocabulary") } }
     @Published var mode: CleanupMode { didSet { defaults.set(mode.rawValue, forKey: "mode") } }
     @Published var hotKey: HotKeyChoice { didSet { defaults.set(hotKey.rawValue, forKey: "hotKey") } }
@@ -18,16 +19,35 @@ import OpenInsertCore
         let oldModel = defaults.string(forKey: "model")
         model = oldModel == nil || oldModel == "gemini-3.8-flash" ? "gemini-3.5-flash-lite" : oldModel!
         asrModel = defaults.string(forKey: "asrModel") ?? "gemini-3.5-transcribe-live"
-        language = defaults.string(forKey: "language") ?? "Traditional Chinese (Taiwan), preserve spoken English"
+        let languagePreference = DictationLanguagePreference(
+            storedSelection: defaults.string(forKey: "languageSelection"),
+            storedCustomText: defaults.string(forKey: "customLanguage"),
+            legacyLanguage: defaults.string(forKey: "language")
+        )
+        languageSelection = languagePreference.selection
+        customLanguage = languagePreference.customText
         vocabulary = defaults.string(forKey: "vocabulary") ?? ""
         mode = CleanupMode(rawValue: defaults.string(forKey: "mode") ?? "") ?? .polished
         hotKey = HotKeyChoice(rawValue: defaults.string(forKey: "hotKey") ?? "") ?? .optionSpace
         restoreClipboard = defaults.object(forKey: "restoreClipboard") as? Bool ?? true
         cloudConsent = defaults.bool(forKey: "liveCloudConsent")
+        persistLanguage()
+    }
+
+    var language: String {
+        DictationLanguagePreference(storedSelection: languageSelection.rawValue,
+                                   storedCustomText: customLanguage).hint
+    }
+
+    private func persistLanguage() {
+        defaults.set(languageSelection.rawValue, forKey: "languageSelection")
+        defaults.set(customLanguage, forKey: "customLanguage")
+        // Retain the legacy key for older app versions and source clients.
+        defaults.set(language, forKey: "language")
     }
 
     var options: DictationOptions {
         DictationOptions(model: model.trimmingCharacters(in: .whitespacesAndNewlines), language: language,
-                         vocabulary: vocabulary, mode: mode)
+                         vocabulary: vocabulary, mode: mode, languagePreference: languageSelection)
     }
 }

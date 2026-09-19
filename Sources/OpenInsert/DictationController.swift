@@ -5,7 +5,7 @@ import Combine
 import OpenInsertCore
 
 @MainActor final class DictationController: ObservableObject {
-    enum Phase { case idle, preparing, recording, transcribing, inserting, testing }
+    enum Phase { case idle, preparing, recording, transcribing, polishing, inserting, testing }
     @Published private(set) var phase: Phase = .idle
     @Published var message = "設定 API key 後，將游標放到輸入欄位即可開始。"
     @Published var lastText = ""
@@ -13,6 +13,9 @@ import OpenInsertCore
     @Published private(set) var liveConnected = false
     @Published private(set) var lastFailure: String?
     @Published private(set) var checkingConnection = false
+    @Published private(set) var testingPipeline = false
+    @Published private(set) var processingSeconds: TimeInterval = 0
+    @Published private(set) var timingSummary = ""
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var level: Float = 0
     @Published private(set) var hasAPIKey = false
@@ -24,10 +27,13 @@ import OpenInsertCore
     private let inserter = TextInserter()
     private let hotKey = GlobalHotKey()
     private var operation: Task<Void, Never>?
+    private var cleanupTask: Task<String, Error>?
+    private var skipCleanup = false
     private var sender: Task<Void, Error>?
     private var liveSession: GeminiLiveTranscriber?
     private var timer: Timer?
     private var target: TextInserter.Target?
+    private var targetCaptureFailure: String?
     private var shortcutGesture = DictationShortcutGesture()
     private var stopWhenReady = false
     private var sessionKey = ""
@@ -40,6 +46,12 @@ import OpenInsertCore
         refreshPermissions()
         hotKey.onPress = { [weak self] timestamp in self?.shortcutPressed(at: timestamp) }
         hotKey.onRelease = { [weak self] timestamp in self?.shortcutReleased(at: timestamp) }
+        hotKey.onUncertainRelease = { [weak self] in
+            guard let self, !self.checkingConnection, !self.testingPipeline,
+                  self.phase == .preparing || self.phase == .recording else { return }
+            self.cancel()
+            self.message = "已偵測到快捷鍵放開，但系統延遲使按壓時長不明；已停止錄音，請重新按鍵。"
+        }
         registerShortcut()
     }
 
@@ -49,9 +61,10 @@ import OpenInsertCore
         case .idle: return "隨時開口，文字就位。"
         case .preparing: return checkingConnection ? "正在測試 Gemini 連線…" : "正在準備麥克風…"
         case .recording: return liveConnected ? "正在即時辨識…" : "正在連線辨識服務…"
-        case .transcribing: return "正在完成辨識與文字整理…"
+        case .transcribing: return String(format: "正在完成語音辨識… %.1f 秒", processingSeconds)
+        case .polishing: return String(format: "正在整理文字… %.1f 秒", processingSeconds)
         case .inserting: return "正在插入文字…"
-        case .testing: return "準備測試文字插入…"
+        case .testing: return testingPipeline ? "正在測試辨識流程（不錄音）…" : "準備測試文字插入…"
         }
     }
     func registerShortcut() {
@@ -60,6 +73,7 @@ import OpenInsertCore
     }
     func refreshPermissions() {
         accessibilityGranted = AXIsProcessTrusted()
+        if accessibilityGranted { inserter.prepareCurrentApplication() }
         microphoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         do { hasAPIKey = !(try KeychainStore.load() ?? "").isEmpty }
         catch { hasAPIKey = false; message = error.localizedDescription }
@@ -98,7 +112,7 @@ import OpenInsertCore
         applyShortcut(shortcutGesture.release(at: timestamp, phase: shortcutPhase))
     }
     private var shortcutPhase: DictationShortcutGesture.Phase {
-        if checkingConnection { return .busy }
+        if checkingConnection || testingPipeline { return .busy }
         switch phase {
         case .idle: return .idle
         case .preparing: return .preparing
@@ -149,6 +163,7 @@ import OpenInsertCore
         lastFailure = nil
         liveText = ""
         liveConnected = false
+        timingSummary = ""
         guard settings.cloudConsent else {
             reset(message: "請先在設定同意將你主動錄製的音訊傳送到 Google Gemini。", isError: true); return
         }
@@ -164,8 +179,13 @@ import OpenInsertCore
                                                              languageCodes: [], vocabulary: vocabulary)
             sessionKey = try GeminiAPIKey.validate(key)
         } catch { reset(message: error.localizedDescription, isError: true); return }
+        targetCaptureFailure = nil
         do { target = try inserter.captureTarget() }
-        catch { target = nil }
+        catch {
+            target = nil
+            targetCaptureFailure = error.localizedDescription
+            accessibilityGranted = AXIsProcessTrusted()
+        }
         sessionOptions = settings.options
         sessionRestore = settings.restoreClipboard
         stopWhenReady = false
@@ -177,7 +197,7 @@ import OpenInsertCore
             onPartial: { [weak self] text in
                 Task { @MainActor in
                     guard let self, self.generation == token, self.busy else { return }
-                    self.liveText = text
+                    self.liveText = self.sessionOptions.applyingOrthography(to: text)
                 }
             })
         liveSession = client
@@ -193,7 +213,7 @@ import OpenInsertCore
                         try await client.start()
                         if let self, self.generation == token, self.phase == .recording {
                             self.liveConnected = true
-                            self.message = self.target == nil ? "音訊正串流至 Google；這次將保留結果供手動複製。" : "音訊正串流至 Google。放開快捷鍵結束；短按可切換錄音。"
+                            self.message = self.target == nil ? "\(self.targetCaptureFailure ?? "無法取得輸入位置。") 這次將保留結果供手動複製。" : "音訊正串流至 Google。放開快捷鍵結束；短按可切換錄音。"
                         }
                         for try await chunk in stream {
                             try Task.checkCancellation()
@@ -233,16 +253,18 @@ import OpenInsertCore
         let duration = recorder.duration
         recorder.stop()
         guard duration >= 0.35 else { cancel(); message = "錄音太短，請再試一次。"; return }
-        phase = .transcribing
+        beginProcessing(.transcribing)
         message = "正在等待 Live ASR 的最後片段。"
         let key = sessionKey; sessionKey = ""
         let options = sessionOptions
         let capturedTarget = target
+        let captureFailure = targetCaptureFailure
         let restore = sessionRestore
         let token = generation
         operation = Task { [weak self] in
             guard let self else { return }
             do {
+                let asrStarted = ProcessInfo.processInfo.systemUptime
                 // Drain every recorded chunk before sending the end-of-activity marker.
                 try await sending.value
                 let raw = options.applyingOrthography(to: try await client.finish())
@@ -250,32 +272,163 @@ import OpenInsertCore
                 guard generation == token else { return }
                 lastText = raw
                 liveText = ""
+                timingSummary = String(format: "ASR 收尾 %.2f 秒", ProcessInfo.processInfo.systemUptime - asrStarted)
                 var text = raw
+                var fallback = ""
                 if options.mode == .polished {
-                    message = "Live 辨識完成，正在使用 \(options.model) 輕度整理。"
-                    text = try await GeminiClient().polish(transcript: raw, apiKey: key, options: options)
+                    beginProcessing(.polishing)
+                    message = "逐字稿已完成，正在輕度整理；最多等待 8 秒，也可以略過後修。"
+                    skipCleanup = false
+                    let polishStarted = ProcessInfo.processInfo.systemUptime
+                    let polishing = Task { try await GeminiClient().polish(transcript: raw, apiKey: key, options: options) }
+                    cleanupTask = polishing
+                    do {
+                        let polished = try await polishing.value
+                        try Task.checkCancellation()
+                        guard generation == token else { return }
+                        if skipCleanup {
+                            text = raw
+                            fallback = "已略過後修，使用原始辨識結果。"
+                        } else { text = options.applyingOrthography(to: polished) }
+                    }
+                    catch {
+                        try Task.checkCancellation()
+                        guard generation == token else { return }
+                        if skipCleanup { fallback = "已略過後修，使用原始辨識結果。" }
+                        else if Self.isTemporaryCleanupError(error) { fallback = "後修暫時無法完成，已使用原始辨識結果。" }
+                        else { throw error }
+                    }
+                    cleanupTask = nil
+                    timingSummary += String(format: " · 後修 %.2f 秒", ProcessInfo.processInfo.systemUptime - polishStarted)
                 }
                 try Task.checkCancellation()
                 guard generation == token else { return }
                 lastText = text
                 guard let capturedTarget else {
-                    reset(message: "辨識完成。未取得輸入位置，請複製下方結果。"); return
+                    reset(message: fallback + "辨識完成。\(captureFailure ?? "未取得輸入位置。") 請複製下方結果。", isError: true); return
                 }
                 phase = .inserting
                 let method = try await inserter.insert(text, into: capturedTarget, restoreClipboard: restore)
                 guard generation == token else { return }
-                reset(message: method)
+                reset(message: fallback + method)
             } catch {
                 await client.cancel()
                 guard generation == token else { return }
-                reset(message: error is CancellationError ? "已取消。已送出的音訊無法收回。" : "\(error.localizedDescription) 已完成的辨識結果仍保留供複製。", isError: !(error is CancellationError))
+                let stage: String
+                switch phase {
+                case .polishing: stage = "文字整理失敗"
+                case .inserting: stage = "文字插入未完成"
+                default: stage = "語音辨識未完成"
+                }
+                reset(message: error is CancellationError ? "已取消。已送出的音訊無法收回。" : "\(stage)：\(error.localizedDescription)", isError: !(error is CancellationError))
             }
         }
+    }
+
+    func skipPolishing() {
+        guard phase == .polishing, !testingPipeline else { return }
+        skipCleanup = true
+        cleanupTask?.cancel()
+    }
+
+    private static func isTemporaryCleanupError(_ error: Error) -> Bool {
+        guard let error = error as? GeminiError else { return false }
+        switch error {
+        case .timeout, .cleanupTimeout, .networkFailure: return true
+        case .httpStatus(let status): return status == 429 || (500...599).contains(status)
+        default: return false
+        }
+    }
+
+    private func beginProcessing(_ next: Phase) {
+        timer?.invalidate()
+        processingSeconds = 0
+        phase = next
+        let started = ProcessInfo.processInfo.systemUptime
+        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.phase == next else { return }
+                self.processingSeconds = ProcessInfo.processInfo.systemUptime - started
+            }
+        }
+    }
+
+    /// Uses a fixed, locally synthesized sentence to exercise the real provider pipeline.
+    /// No microphone, user vocabulary, destination capture, or insertion is involved.
+    func testPipeline() {
+        guard !busy, settings.cloudConsent else { return }
+        lastFailure = nil; liveText = ""; timingSummary = ""
+        do {
+            guard let key = try KeychainStore.load() else { throw GeminiError.invalidAPIKey }
+            let options = DictationOptions(model: settings.options.model, language: settings.options.language,
+                                           vocabulary: "", mode: .polished)
+            try GeminiLiveTranscriber.validateConfiguration(apiKey: key, model: settings.asrModel)
+            let token = UUID(); generation = token
+            testingPipeline = true
+            beginProcessing(.testing)
+            message = "正在本機合成固定測試句；不使用麥克風、不插入文字。"
+            let client = GeminiLiveTranscriber(apiKey: key, model: settings.asrModel, onPartial: { [weak self] text in
+                Task { @MainActor in
+                    guard let self, self.generation == token, self.testingPipeline else { return }
+                    self.liveText = options.applyingOrthography(to: text)
+                }
+            })
+            liveSession = client
+            operation = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let speech = DiagnosticSpeech()
+                    let pcm = try await speech.render()
+                    try Task.checkCancellation()
+                    guard generation == token else { return }
+                    message = "正在傳送固定測試語音至 Google；麥克風未啟動。"
+                    let connectStarted = ProcessInfo.processInfo.systemUptime
+                    try await client.start()
+                    try Task.checkCancellation()
+                    guard generation == token else { return }
+                    timingSummary = String(format: "連線 %.2f 秒", ProcessInfo.processInfo.systemUptime - connectStarted)
+                    for offset in stride(from: 0, to: pcm.count, by: 3_200) {
+                        try Task.checkCancellation()
+                        try await client.sendAudio(Data(pcm[offset..<min(offset + 3_200, pcm.count)]))
+                        try await Task.sleep(nanoseconds: 100_000_000)
+                    }
+                    beginProcessing(.transcribing)
+                    message = "測試語音已傳送，正在等待 ASR 定稿。"
+                    let asrStarted = ProcessInfo.processInfo.systemUptime
+                    let raw = options.applyingOrthography(to: try await client.finish())
+                    try Task.checkCancellation()
+                    guard generation == token else { return }
+                    timingSummary += String(format: " · ASR 收尾 %.2f 秒", ProcessInfo.processInfo.systemUptime - asrStarted)
+                    let events = await client.diagnostics()
+                    try Task.checkCancellation()
+                    guard generation == token else { return }
+                    timingSummary += "（定稿 \(events.finalSegmentCount)，turnComplete \(events.turnComplete ? "有" : "無")）"
+                    try Task.checkCancellation()
+                    guard generation == token else { return }
+                    lastText = raw; liveText = ""
+                    beginProcessing(.polishing)
+                    message = "ASR 測試成功，正在量測文字後修。"
+                    let polishStarted = ProcessInfo.processInfo.systemUptime
+                    let result = try await GeminiClient().polish(transcript: raw, apiKey: key, options: options)
+                    try Task.checkCancellation()
+                    guard generation == token else { return }
+                    timingSummary += String(format: " · 後修 %.2f 秒", ProcessInfo.processInfo.systemUptime - polishStarted)
+                    lastText = options.applyingOrthography(to: result)
+                    reset(message: "辨識與後修測試成功。\(timingSummary)。沒有錄音或插入文字。")
+                } catch {
+                    let events = await client.diagnostics()
+                    await client.cancel()
+                    guard generation == token else { return }
+                    reset(message: "測試未完成：\(error.localizedDescription) \(timingSummary)；ASR 定稿 \(events.finalSegmentCount)，暫稿 \(events.interimUpdateCount)，待定暫稿 \(events.hasInterim ? "有" : "無")。", isError: !(error is CancellationError))
+                }
+            }
+        } catch { reset(message: error.localizedDescription, isError: true) }
     }
     func cancel() {
         guard phase != .inserting else { return }
         generation = UUID()
         operation?.cancel(); operation = nil
+        cleanupTask?.cancel(); cleanupTask = nil
         sender?.cancel(); sender = nil
         if let client = liveSession { Task { await client.cancel() } }
         recorder.cancel()
@@ -283,11 +436,13 @@ import OpenInsertCore
     }
     private func reset(message: String, isError: Bool = false) {
         timer?.invalidate(); timer = nil
-        sessionKey = ""; target = nil; stopWhenReady = false; shortcutGesture.reset()
+        sessionKey = ""; target = nil; targetCaptureFailure = nil; stopWhenReady = false; shortcutGesture.reset()
         liveSession = nil; sender = nil
+        cleanupTask = nil; skipCleanup = false
         phase = .idle; level = 0
         liveConnected = false
         checkingConnection = false
+        testingPipeline = false
         self.message = message
         lastFailure = isError ? message : nil
     }
@@ -324,7 +479,7 @@ import OpenInsertCore
         }
     }
     func shutdown() {
-        operation?.cancel(); sender?.cancel()
+        operation?.cancel(); sender?.cancel(); cleanupTask?.cancel()
         if let client = liveSession { Task { await client.cancel() } }
         recorder.cancel(); timer?.invalidate(); hotKey.unregister()
     }

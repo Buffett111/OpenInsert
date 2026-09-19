@@ -1,40 +1,71 @@
-OpenInsert 0.2.2 — macOS 13 or later
+OpenInsert 0.2.3 — macOS 13 or later
 
 1. Drag OpenInsert.app to Applications.
-2. Open it and configure your own Gemini API key in Connection & Permissions.
+2. Open it and save your own Gemini API key in Connection & Permissions.
+   Paste the complete opaque key, including punctuation. Local validation checks
+   header safety, not Google's authorization, billing or model access.
 3. Enable microphone and Accessibility permission for OpenInsert.
 4. Agree to live audio streaming and optional transcript cleanup by Google.
    Upgrading from 0.1 requires new consent; audio is sent while you speak.
 5. Quit other apps that use Option + Space. Focus a text field.
-6. Hold Option + Space, speak, and release. Or tap once to start and again to stop.
-   A hold of at least 0.35 seconds finishes on release. Shortcut conflicts show an error;
-   quit the other app or select an alternative shortcut in OpenInsert settings.
-7. The floating panel shows live text, status, and errors without taking focus.
-   "預覽浮動字幕" shows a synthetic preview only: no microphone, network, or insertion.
+6. Hold Option + Space, speak and release. Or tap once to start and again to stop.
+   A hold of at least 0.35 seconds finishes on release. Shortcut conflicts show an
+   error; quit the other app or choose an alternative shortcut in settings.
+   If release timing is ambiguous, OpenInsert cancels and asks you to retry. With
+   Accessibility already granted, it can check only the shortcut's key states to
+   recover a delayed release; it does not monitor all keyboard input.
+7. The floating panel shows live text, state and errors without taking focus.
+   "預覽浮動字幕" uses synthetic text only: no microphone, network or insertion.
+8. Choose a writing-language preference: Traditional Chinese (Taiwan), automatic,
+   Simplified Chinese, English, Japanese, Korean or custom. ASR still detects spoken
+   languages automatically. Chinese forms are converted locally, including previews;
+   mixed-language speech is preserved and the menu does not request translation.
 
-Optional: after saving the Keychain key and enabling Google consent, choose
-"檢查 Gemini 連線（不錄音）". It contacts Google using the selected Live ASR model
-and fixed setup settings, with empty custom vocabulary, then closes the session.
-It never opens the microphone or sends audio. Success confirms this connection
-and model setup only, not transcription, text cleanup, or destination insertion.
+Optional checks after saving the Keychain key and enabling Google consent:
 
-Paste the complete Google API key, including punctuation. Version 0.2.2 accepts
-opaque key strings such as dotted AQ. forms and keys longer than the previous
-256-character limit. Local checks run before opening the microphone and report
-missing keys, unsafe paste characters, or oversized input. They check header safety,
-not Google's authorization, billing, or model access. Never share your key in an issue.
-Google's current key guide: https://ai.google.dev/gemini-api/docs/api-key
+- "檢查 Gemini 連線（不錄音）" contacts Google with the selected Live model and
+  fixed setup settings, then closes the session. It sends no audio or custom
+  vocabulary and never opens the microphone. Success verifies connection/model
+  setup only, not ASR, cleanup or insertion.
+- "測試辨識與後修（不錄音）" synthesizes a fixed sentence in memory, sends that
+  audio to the selected ASR model and tests the resulting text with the selected
+  cleanup model. Custom vocabulary is empty. This uses the real Google API and may
+  incur charges, but never opens the microphone or inserts text. Separate timings
+  distinguish ASR finalization from cleanup; success does not test your own voice
+  or destination editor.
+
+To run the same fixed-sentence API test from Terminal after key/consent setup:
+/Applications/OpenInsert.app/Contents/MacOS/OpenInsert --diagnose-pipeline
+It never opens the microphone or inserts text. It exits when complete or after a
+70-second overall deadline and prints JSON status, timings and the synthetic result.
+Check the report's success field. No credentials or ordinary dictation are printed;
+redirecting stdout to a file will preserve the synthetic test report.
 
 Default ASR: gemini-3.5-transcribe-live (WebSocket, automatic language detection).
-Default optional cleanup: gemini-3.5-flash-lite (text-only generateContent).
-Verbatim mode skips cleanup. Cleanup failure preserves the finalized ASR result
-for manual copy and prevents automatic insertion. Unfinalized previews are never inserted.
-Audio uses bounded RAM buffers; OpenInsert 0.2 creates no recording files.
-Cancelling cannot recall audio already sent. Review important dictated text.
+Default optional cleanup: gemini-3.5-flash-lite (text-only generateContent, minimal
+thinking). Verbatim mode skips cleanup. Cleanup has an eight-second total limit;
+while waiting, "略過後修，直接使用辨識結果" cancels cleanup and uses finalized ASR.
+A skip or temporary cleanup failure uses that final text after the usual target
+checks and reports the fallback. Cancelling the entire operation, permanent errors,
+blocked or incomplete/invalid output stop automatic insertion. Unfinalized previews
+are never inserted. Check the destination before manually copying results.
+
+For the default dedicated ASR model, completion requires authoritative final text,
+a successfully sent activityEnd, no unresolved interim and one second without text
+updates. It no longer requires turnComplete for that exact model. Other models
+retain that extra condition. A 20-second ASR deadline remains, separate from the
+eight-second cleanup deadline. Quiet waiting is a heuristic, not a guaranteed
+receipt for every late segment. Review important dictated text.
+
+Audio uses bounded RAM buffers; OpenInsert 0.2 creates no recording files. There is
+no screen context, screenshot capture or transcript history. Cancelling cannot
+recall audio or text already sent to Google. API usage and data processing follow
+your Google account's terms. Never share a key in an issue or screenshot.
+Google's key guide: https://ai.google.dev/gemini-api/docs/api-key
 
 This community build is ad-hoc signed, not Apple Developer ID signed or notarized.
 macOS may block a downloaded build. Inspect the source or build locally if needed.
-Do not disable Gatekeeper. See Apple's official instructions if you choose to open it:
+Do not disable Gatekeeper. See Apple's official guidance if you choose to open it:
 https://support.apple.com/en-us/102445
 
 Updating or rebuilding an ad-hoc build may require granting Accessibility again,
@@ -45,10 +76,17 @@ Reopen that app and click Recheck Permissions. Connection & Permissions shows th
 running app's path so you can identify the correct copy. OpenInsert never resets
 or grants these system permissions automatically.
 
-Automatic insertion does not work in every app. It never presses Return.
-Results remain available for manual copy if the destination changes or refuses input.
-Gemini usage, pricing, and data processing follow your Google account's terms.
-The Live completion rule uses turnComplete plus a one-second quiet interval with
-no unresolved interim text, subject to a 20-second deadline. It is a heuristic,
-not a guaranteed server completion receipt. See docs/VALIDATION.md in the source
+For source builders with an existing signing certificate, build-app.sh can read
+its fingerprint from the first line of the gitignored .local-signing-identity at
+the repository root. CODE_SIGN_IDENTITY takes priority. The file selects an existing
+certificate/private-key identity on your Mac; it does not contain a private key.
+Reusing a stable Apple Development identity can avoid repeated local permission
+grants across rebuilds, subject to macOS policy. A first switch from ad-hoc signing
+may still require permission again. This is not Developer ID signing or notarization.
+Do not publish personal certificates, emails, fingerprints or private keys.
+Public CI has no local identity file and retains its ad-hoc default.
+
+Automatic insertion does not work in every app. It never presses Return; destination
+apps can still react to inserted text. Results remain available for manual copy if
+the destination changes or refuses input. See docs/VALIDATION.md in the source
 repository for the real-service and cross-app checks completed for this release.

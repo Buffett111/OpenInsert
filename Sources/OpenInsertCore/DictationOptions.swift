@@ -8,26 +8,32 @@ public enum CleanupMode: String, CaseIterable, Codable, Sendable {
 public struct DictationOptions: Sendable {
     public var model: String
     public var language: String
+    public var languagePreference: DictationLanguage?
     public var vocabulary: String
     public var mode: CleanupMode
 
     /// Character-form conversion only; this does not translate or rewrite the transcript.
     public func applyingOrthography(to text: String) -> String {
-        let hint = language.lowercased()
-        if ["traditional chinese", "繁體", "zh-tw", "zh-hant"].contains(where: hint.contains) {
+        switch languagePreference ?? DictationLanguage.matchingPreset(for: language) {
+        case .traditionalChinese:
             return text.applyingTransform(StringTransform("Hans-Hant"), reverse: false) ?? text
+        case .simplifiedChinese:
+            return text.applyingTransform(StringTransform("Hant-Hans"), reverse: false) ?? text
+        default:
+            return text
         }
-        return text
     }
 
     public init(
         model: String = "gemini-3.5-flash-lite",
-        language: String = "Traditional Chinese (Taiwan), preserve spoken English",
+        language: String = DictationLanguage.traditionalChinese.promptHint,
         vocabulary: String = "",
-        mode: CleanupMode = .polished
+        mode: CleanupMode = .polished,
+        languagePreference: DictationLanguage? = nil
     ) {
         self.model = model
         self.language = language
+        self.languagePreference = languagePreference
         self.vocabulary = vocabulary
         self.mode = mode
     }

@@ -1,12 +1,70 @@
 import AppKit
 import ApplicationServices
 import Carbon
+import OpenInsertCore
 
 /// Inserts only into the field captured when dictation began. No text is read
 /// from other apps: Accessibility is used only for focus, role, selection range,
 /// and an optional selected-text write. Clipboard data never leaves this class.
 @MainActor
 final class TextInserter {
+    private var activationObserver: NSObjectProtocol?
+    private var electronPreparation = AccessibilityBridgePreparation()
+
+    init() {
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.prepareCurrentApplication() }
+        }
+    }
+
+    deinit {
+        if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
+    }
+
+    /// Warm up an Electron app's native Accessibility bridge after it becomes
+    /// frontmost. Only framework metadata, application role and a capability
+    /// flag are inspected; this never enumerates UI children or reads text.
+    func prepareCurrentApplication() {
+        guard AXIsProcessTrusted(), let application = NSWorkspace.shared.frontmostApplication,
+              application.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+        prepareElectronApplication(application)
+    }
+
+    private func prepareElectronApplication(_ application: NSRunningApplication) {
+        guard let bundleURL = application.bundleURL else { return }
+        let framework = bundleURL.appendingPathComponent("Contents/Frameworks/Electron Framework.framework", isDirectory: true)
+        // Inspect the actual application bundle; never infer Electron from its
+        // display name or broadly enable an undocumented Chromium attribute.
+        guard FileManager.default.fileExists(atPath: framework.path), Bundle(url: framework) != nil else { return }
+        let pid = application.processIdentifier
+        let identity = bundleURL.path + ":" + String(application.launchDate?.timeIntervalSince1970 ?? 0)
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.75)
+        var role: CFTypeRef?
+        // Electron enables its native AT mode when the application role is read.
+        _ = AXUIElementCopyAttributeValue(app, kAXRoleAttribute as CFString, &role)
+        guard !electronPreparation.hasAttempted(processID: pid, identity: identity) else { return }
+        let attribute = "AXManualAccessibility" as CFString
+        var settable = DarwinBoolean(false)
+        var enabled: CFTypeRef?
+        guard AXUIElementIsAttributeSettable(app, attribute, &settable) == .success, settable.boolValue,
+              AXUIElementCopyAttributeValue(app, attribute, &enabled) == .success,
+              (enabled as? Bool) == false else { return }
+        // Electron documents this flag for third-party assistive software. Its
+        // current implementation debounces activation for two seconds, so send
+        // it once per process launch, without sleeping on the main thread.
+        // https://github.com/electron/electron/blob/main/docs/tutorial/accessibility.md
+        let status = AXUIElementSetAttributeValue(app, attribute, kCFBooleanTrue)
+        electronPreparation.recordAttempt(processID: pid, identity: identity, succeeded: status == .success,
+                                          at: ProcessInfo.processInfo.systemUptime)
+    }
+
+    private func isElectronPreparing(_ pid: pid_t) -> Bool {
+        electronPreparation.isPreparing(processID: pid, at: ProcessInfo.processInfo.systemUptime)
+    }
+
     struct Target {
         fileprivate let processID: pid_t
         fileprivate let element: AXUIElement
@@ -26,8 +84,24 @@ final class TextInserter {
               application.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
             throw InsertionError.noInputField
         }
-        let element = try focusedElement(processID: application.processIdentifier)
-        try verifyEditable(element)
+        prepareElectronApplication(application)
+        let element: AXUIElement
+        do {
+            element = try focusedElement(processID: application.processIdentifier)
+            try verifyEditable(element)
+        } catch let error as InsertionError {
+            // Preserve permission and secure-field errors. Only a missing or
+            // unsupported focus can plausibly result from an AX tree warming up.
+            switch error {
+            case .unsupportedInputRole, .noInputField:
+                if isElectronPreparing(application.processIdentifier) { throw InsertionError.accessibilityPreparing }
+            case .accessibilityReadFailed(_, let code):
+                if (code == AXError.noValue.rawValue || code == AXError.attributeUnsupported.rawValue),
+                   isElectronPreparing(application.processIdentifier) { throw InsertionError.accessibilityPreparing }
+            default: break
+            }
+            throw error
+        }
         return Target(processID: application.processIdentifier, element: element,
                       selection: try selectedRange(element),
                       applicationName: application.localizedName ?? "the original app",
@@ -125,9 +199,10 @@ final class TextInserter {
         let app = AXUIElementCreateApplication(processID)
         AXUIElementSetMessagingTimeout(app, 0.75)
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value) == .success,
-              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
-            throw InsertionError.noInputField
+        let status = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value)
+        guard status == .success else { throw InsertionError.accessibilityReadFailed(kAXFocusedUIElementAttribute, status.rawValue) }
+        guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            throw InsertionError.invalidAccessibilityValue(kAXFocusedUIElementAttribute)
         }
         let element = unsafeBitCast(value, to: AXUIElement.self)
         AXUIElementSetMessagingTimeout(element, 0.75)
@@ -142,10 +217,11 @@ final class TextInserter {
         // A terminal password prompt may still expose an ordinary AXTextArea.
         // Honor macOS Secure Event Input as well as the field's AX metadata.
         guard !IsSecureEventInputEnabled() else { throw InsertionError.secureField }
-        let role = stringAttribute(kAXRoleAttribute, of: element)
-        let subrole = stringAttribute(kAXSubroleAttribute, of: element)
+        let role = try stringAttribute(kAXRoleAttribute, of: element)
+        let subrole = try stringAttribute(kAXSubroleAttribute, of: element)
         var protectedValue: CFTypeRef?
-        _ = AXUIElementCopyAttributeValue(element, "AXProtectedContent" as CFString, &protectedValue)
+        let protectedStatus = AXUIElementCopyAttributeValue(element, "AXProtectedContent" as CFString, &protectedValue)
+        try verifyOptionalAttributeStatus(protectedStatus, attribute: "AXProtectedContent")
         if subrole == kAXSecureTextFieldSubrole || (protectedValue as? Bool) == true {
             throw InsertionError.secureField
         }
@@ -154,33 +230,45 @@ final class TextInserter {
         let textRoles: Set<String> = [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole]
         var selectedTextSettable = DarwinBoolean(false)
         let status = AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &selectedTextSettable)
+        try verifyOptionalAttributeStatus(status, attribute: kAXSelectedTextAttribute)
         guard role.map(textRoles.contains) == true || (status == .success && selectedTextSettable.boolValue) else {
-            throw InsertionError.noInputField
+            throw InsertionError.unsupportedInputRole(role)
         }
         var enabledValue: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &enabledValue) == .success,
-           (enabledValue as? Bool) == false {
+        let enabledStatus = AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &enabledValue)
+        try verifyOptionalAttributeStatus(enabledStatus, attribute: kAXEnabledAttribute)
+        if enabledStatus == .success, (enabledValue as? Bool) == false {
             throw InsertionError.noInputField
         }
     }
 
-    private func stringAttribute(_ attribute: String, of element: AXUIElement) -> String? {
+    private func verifyOptionalAttributeStatus(_ status: AXError, attribute: String) throws {
+        if status != .success && status != .attributeUnsupported && status != .noValue && status != .notImplemented {
+            throw InsertionError.accessibilityReadFailed(attribute, status.rawValue)
+        }
+    }
+
+    private func stringAttribute(_ attribute: String, of element: AXUIElement) throws -> String? {
         var result: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &result) == .success else { return nil }
-        return result as? String
+        let status = AXUIElementCopyAttributeValue(element, attribute as CFString, &result)
+        try verifyOptionalAttributeStatus(status, attribute: attribute)
+        guard status == .success else { return nil }
+        guard let string = result as? String else { throw InsertionError.invalidAccessibilityValue(attribute) }
+        return string
     }
 
     private func selectedRange(_ element: AXUIElement) throws -> Selection? {
         var value: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value)
         if status == .attributeUnsupported || status == .noValue { return nil }
-        guard status == .success, let value, CFGetTypeID(value) == AXValueGetTypeID() else {
-            throw InsertionError.targetChanged
+        guard status == .success else { throw InsertionError.accessibilityReadFailed(kAXSelectedTextRangeAttribute, status.rawValue) }
+        guard let value, CFGetTypeID(value) == AXValueGetTypeID() else {
+            throw InsertionError.invalidAccessibilityValue(kAXSelectedTextRangeAttribute)
         }
         let axValue = unsafeBitCast(value, to: AXValue.self)
         var range = CFRange()
         guard AXValueGetType(axValue) == .cfRange, AXValueGetValue(axValue, .cfRange, &range) else {
-            throw InsertionError.targetChanged
+            throw InsertionError.invalidAccessibilityValue(kAXSelectedTextRangeAttribute)
         }
         return Selection(location: range.location, length: range.length)
     }
@@ -217,12 +305,31 @@ final class TextInserter {
         case emptyText, modifierHeld, eventCreationFailed, clipboardChanged, clipboardUnreadable, clipboardWriteFailed
         case terminalControlText
         case accessibilityWriteFailed(Int32)
+        case accessibilityPreparing, unsupportedInputRole(String?)
+        case accessibilityReadFailed(String, Int32), invalidAccessibilityValue(String)
 
         var errorDescription: String? {
             switch self {
             case .accessibilityDenied:
-                return "Enable OpenInsert in System Settings → Privacy & Security → Accessibility, then try again."
+                return "目前這份 OpenInsert 尚未取得輔助使用授權。請在系統設定的輔助使用權限頁啟用 OpenInsert，再重新檢查權限。"
             case .noInputField: return "Focus an editable text field in another app before starting dictation."
+            case .accessibilityPreparing:
+                return "輸入欄位輔助介面準備中，請稍候約 2 秒，再點入文字欄位並重試。"
+            case .unsupportedInputRole(let role):
+                return "目前焦點不是可辨識的文字輸入欄位（\(String((role ?? "unknown role").prefix(64)))）。請點入可編輯的文字欄位後重試。"
+            case .accessibilityReadFailed(let attribute, let code):
+                let reason: String
+                switch AXError(rawValue: code) {
+                case .apiDisabled: reason = "輔助使用 API 已停用；請重新檢查目前這份 OpenInsert 的權限"
+                case .cannotComplete: reason = "目標 App 未完成輔助使用請求，可能尚未就緒或沒有回應"
+                case .attributeUnsupported: reason = "目標 App 不支援此輔助使用屬性"
+                case .noValue: reason = "目標 App 尚未提供目前焦點或選取範圍"
+                case .invalidUIElement: reason = "原焦點元素已失效，請重新點入輸入欄位"
+                default: reason = "無法讀取輸入位置的輔助使用資料"
+                }
+                return "\(reason)（\(attribute)，AX \(code)）。"
+            case .invalidAccessibilityValue(let attribute):
+                return "目標 App 回傳的輸入位置資料格式無效（\(attribute)），請重新點入文字欄位後重試。"
             case .secureField: return "OpenInsert does not insert into password or protected fields."
             case .targetChanged: return "The original input field is no longer focused. Your result is preserved for copying."
             case .selectionChanged: return "The cursor or selection changed during dictation. Your result is preserved for copying."

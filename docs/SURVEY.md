@@ -81,7 +81,7 @@ Apple 的 AX API 明確可能回傳「屬性不支援」、「物件失效」或
 
 建議提供「原樣」與「清理」兩種明確模式。清理只處理標點、口頭填充詞和使用者立即自我更正，保留專有名詞、數字、語言與語意；不要把口述的問題當成對 AI 的提問。字詞表以資料輸入，不成為額外 system instruction。OpenWhispr 的公開 issue 顯示 cleanup 模型把問題回答成文章的真實使用者回報，屬風險案例而非普遍故障率證據。[Issue #833](https://github.com/OpenWhispr/openwhispr/issues/833)
 
-0.2 實作此分工：確定的 ASR 文字先保存在 RAM，`polished` 再呼叫 Flash Lite 的 text-only `generateContent`；`verbatim` 不呼叫整理模型。整理失敗保留 ASR 結果供手動複製，但停止本次自動插入，讓使用者先核對。
+0.2.3 實作此分工：確定的 ASR 文字先保存在 RAM，`polished` 再呼叫 Flash Lite 的 text-only `generateContent`；`verbatim` 不呼叫整理模型。預設 Flash Lite 使用 minimal thinking，後修有獨立 8 秒總期限並可略過。略過或暫時失敗（逾時、網路、429／5xx）時明確告知改用定稿 ASR，經原有目標檢查後插入；取消整次工作、永久錯誤、安全阻擋或不完整回覆停止自動插入。原始定稿仍供手動複製，未定稿預覽不直接使用。
 
 ### C. 0.2 的即時 ASR
 
@@ -89,7 +89,7 @@ Apple 的 AX API 明確可能回傳「屬性不支援」、「物件失效」或
 
 ASR 使用自動語言偵測與 `VERBATIM`；繁中偏好在確定轉錄後進行本機 `Hans-Hant` 字形轉換，英文保留。這不等於已量測台灣華語辨識率，也不保證特定台灣用詞。可選的 Flash Lite 整理接在後面；專用 Live ASR 不能只填進原本的 `generateContent` URL。
 
-Push-to-talk 關閉自動 VAD，以 `activityStart`／`activityEnd` 控制。收到 `setupComplete` 後才傳送音訊；interim 僅作未定稿預覽。由於 [WebSocket reference](https://ai.google.dev/api/live)未保證 input transcript 與其他訊息的順序，0.2 以 `turnComplete`、無未解決 interim、1 秒沒有轉錄更新，搭配 20 秒 deadline 判定完成。這是 heuristic，足夠晚到的片段仍可能遺漏；尚需真實服務驗證，不能聲稱有完整收件證明。
+Push-to-talk 關閉自動 VAD，以 `activityStart`／`activityEnd` 控制。收到 `setupComplete` 後才傳送音訊；interim 僅作未定稿預覽。0.2.3 對精確的 `gemini-3.5-transcribe-live`，以成功送出 `activityEnd`、已有 authoritative `inputTranscription`、無未解決 interim、1 秒沒有轉錄更新，搭配 20 秒 ASR deadline 判定完成，不再強制 `turnComplete`；其他模型 ID 仍需要此額外條件。[Live Transcription](https://ai.google.dev/gemini-api/docs/live-api/live-transcribe) 描述定稿片段，[WebSocket reference](https://ai.google.dev/api/live) 未保證 input transcript 與其他訊息的完整順序。這仍是 heuristic，足夠晚到的片段可能遺漏；真實服務結果另見 [VALIDATION](VALIDATION.md)，不能聲稱有完整收件證明。
 
 ### 模型選擇應可以更新
 
@@ -139,9 +139,9 @@ Gemini Live ASR（使用者金鑰 / manual VAD / finalization / cancellation）
 | 原剪貼簿是文字、圖片、檔案、多格式；等待期間複製新內容 | 保存可恢復格式；不覆蓋使用者後來複製的內容 |
 | 麥克風／Accessibility 拒絕後再開啟；錄音中撤銷權限 | 能離開忙碌狀態、引導到正確設定、不假成功 |
 | 取消、timeout、離線、429、401／403、空回覆、截斷回覆 | 不插入錯誤訊息、不重複插入；結果／重試狀態可理解 |
-| Live setup、interim 替換、final 累積、turnComplete 前後的 final、超過 1 秒的 late final | 不插入未定稿；量測完成 heuristic 的延遲與漏段限制；沒有完成訊號時不假成功 |
+| Live setup、interim 替換、final 累積、無 turnComplete 的專用 ASR、超過 1 秒的 late final | 不插入未定稿；量測 quiet heuristic 的延遲與漏段限制；沒有 authoritative final 時不假成功 |
 | 48 kHz／44.1 kHz 麥克風、立體聲、末尾不足 100 ms、網路阻塞、裝置中斷 | 正確重取樣並排空尾端；溢位與 drop 顯示失敗，不靜默缺字 |
-| 逐字／整理模式、整理失敗、0.1 升級 | 跳過或只傳文字給 LLM；失敗保留 ASR 文字並停止自動插入；重新要求串流同意 |
+| 逐字／整理模式、8 秒期限、略過／取消／暫時與永久整理錯誤、0.1 升級 | 跳過或只傳文字給 LLM；fallback 只用定稿 ASR，取消／永久錯誤不自動插入；重新要求串流同意 |
 | 台灣口音、國英切換、人名、產品名、數字、日期、程式碼 | 分別計算辨識錯誤與修正新增錯誤，人工核對語意 |
 | 僅背景噪音、靜音、極短錄音 | 不把幻覺文字自動貼出；記錄尚未達成的防護 |
 | 冷啟動與連續多次輸入 | 記錄停止錄音至結果、至貼上命令的 P50/P95；不以主觀「很快」代替數據 |

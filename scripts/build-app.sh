@@ -35,7 +35,13 @@ fi
 cp Resources/Info.plist "$app/Contents/Info.plist"
 swift scripts/make-icon.swift
 iconutil -c icns .build/AppIcon.iconset -o "$app/Contents/Resources/AppIcon.icns"
-identity="${CODE_SIGN_IDENTITY:--}"
+identity="${CODE_SIGN_IDENTITY:-}"
+# Optional machine-local certificate fingerprint; never source a shell file or
+# commit a developer's signing identity. CI remains ad-hoc unless configured.
+if [ -z "$identity" ] && [ -f .local-signing-identity ]; then
+  IFS= read -r identity < .local-signing-identity
+fi
+identity="${identity:--}"
 if [ "$identity" = - ]; then
   codesign --force --sign - --entitlements Resources/OpenInsert.entitlements "$app"
 else

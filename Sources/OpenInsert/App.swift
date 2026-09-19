@@ -43,11 +43,40 @@ import Combine
             let recording = phase == .recording
             self.statusItem.button?.image = NSImage(systemSymbolName: recording ? "record.circle.fill" : "waveform", accessibilityDescription: "OpenInsert")
             self.statusItem.button?.contentTintColor = recording ? .systemRed : nil
-            self.statusItem.button?.title = recording ? " REC" : (phase == .transcribing ? " …" : "")
+            self.statusItem.button?.title = recording ? " REC" : (phase == .transcribing || phase == .polishing ? " …" : "")
             menu.items[1].isEnabled = recording
             menu.items[2].isEnabled = phase != .idle && phase != .inserting
         }.store(in: &subscriptions)
         showWindow()
+        // A reproducible diagnostic entry point for contributors and support.
+        // It exercises the same fixed-sentence path as the UI, never the microphone.
+        if ProcessInfo.processInfo.arguments.contains("--diagnose-pipeline") {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard self.controller.hasAPIKey, self.controller.settings.cloudConsent else {
+                    self.printDiagnostic(success: false, status: "Save an API key and consent to Google in OpenInsert first.")
+                    NSApp.terminate(nil)
+                    return
+                }
+                self.controller.testPipeline()
+                let deadline = ProcessInfo.processInfo.systemUptime + 70
+                while self.controller.busy, ProcessInfo.processInfo.systemUptime < deadline {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
+                let expired = self.controller.busy
+                if expired { self.controller.cancel() }
+                self.printDiagnostic(success: !expired && self.controller.lastFailure == nil,
+                    status: expired ? "Diagnostic exceeded its overall deadline." : self.controller.message)
+                NSApp.terminate(nil)
+            }
+        }
+    }
+    private func printDiagnostic(success: Bool, status: String) {
+        let report: [String: Any] = ["success": success, "status": status,
+            "timing": controller.timingSummary, "syntheticResult": controller.lastText,
+            "microphoneUsed": false, "textInserted": false]
+        if let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]),
+           let line = String(data: data, encoding: .utf8) { print(line) }
     }
     @objc func showWindow() {
         controller.refreshPermissions()

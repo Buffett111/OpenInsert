@@ -38,10 +38,17 @@ struct MainView: View {
                 }
                 Text(controller.message).font(.callout).foregroundStyle(.secondary)
                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                if !controller.timingSummary.isEmpty {
+                    Text(controller.timingSummary).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
                 if controller.busy {
                     HStack {
                         if controller.phase == .recording {
                             Button("完成錄音") { controller.finishRecording() }.buttonStyle(.borderedProminent).tint(accent)
+                        }
+                        if controller.phase == .polishing && !controller.testingPipeline {
+                            Button("略過後修，直接使用辨識結果") { controller.skipPolishing() }
                         }
                         Button("取消") { controller.cancel() }.disabled(controller.phase == .inserting)
                     }
@@ -125,8 +132,19 @@ struct MainView: View {
                     Text("輕度整理").tag(CleanupMode.polished); Text("逐字辨識").tag(CleanupMode.verbatim)
                 }.pickerStyle(.segmented).labelsHidden()
             }
-            setting("文字語言偏好", detail: "ASR 自動偵測中英混用。預設在本機轉成繁中字形；輕度整理也會套用此偏好。") {
-                TextField("語言", text: $settings.language).textFieldStyle(.roundedBorder)
+            setting("文字語言偏好", detail: "預設繁體中文並保留中英混用。辨識仍自動偵測語言；繁／簡選項會在本機轉換中文字形，其他選項提供整理時的書寫偏好，不會把內容翻譯成所選語言。") {
+                Picker("文字語言偏好", selection: $settings.languageSelection) {
+                    ForEach(DictationLanguage.allCases) { language in
+                        Text(language.displayName).tag(language)
+                    }
+                }.pickerStyle(.menu).labelsHidden()
+                if settings.languageSelection == .custom {
+                    TextField("例如：保留廣東話用字與口述英文", text: $settings.customLanguage)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("自訂書寫語言偏好")
+                    Text("舊版自訂偏好會保留於此；此欄用於書寫與標點偏好。需要繁簡字形轉換時，請選擇上方對應選項。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             setting("自訂詞彙", detail: "例如人名、產品名與術語，每行一個。這些詞彙會和錄音一起送到 Google。") {
                 TextEditor(text: $settings.vocabulary).frame(height: 80).padding(5).overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
@@ -160,6 +178,12 @@ struct MainView: View {
                 .disabled(controller.busy)
             Button("檢查 Gemini 連線（不錄音）") { controller.checkConnection() }
                 .disabled(controller.busy || !controller.hasAPIKey || !settings.cloudConsent)
+            VStack(alignment: .leading, spacing: 7) {
+                Button("測試辨識與後修（不錄音）") { controller.testPipeline() }
+                    .disabled(controller.busy || !controller.hasAPIKey || !settings.cloudConsent)
+                Text("使用固定測試句合成聲音並送到 Google，分別量測 ASR 收尾與後修；不使用麥克風、不插入文字。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Text("使用自己的 API key，費用與資料處理規則依你的 Google 帳號方案。OpenInsert 不經過開發者的伺服器。")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()

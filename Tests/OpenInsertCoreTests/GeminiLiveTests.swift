@@ -124,6 +124,113 @@ final class GeminiLiveTests: XCTestCase {
         XCTAssertFalse(socket.sent.joined().contains("audioStreamEnd"))
     }
 
+    func testDedicatedTranscriberFinalizesWithoutTurnComplete() async throws {
+        let socket = FakeLiveTransport()
+        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: timing)
+        try await client.start()
+        socket.onSend = { text in
+            if text == GeminiLiveProtocol.activityEnd {
+                socket.push(#"{"serverContent":{"interimInputTranscription":{"text":"private preview"}}}"#)
+                socket.push(#"{"serverContent":{"inputTranscription":{"text":"Final text.","finished":true}}}"#)
+            }
+        }
+        let result = try await client.finish()
+        XCTAssertEqual(result, "Final text.")
+        let stats = await client.diagnostics()
+        XCTAssertEqual(stats.phase, "complete")
+        XCTAssertTrue(stats.usesTranscriptCompletion)
+        XCTAssertTrue(stats.activityEndSent)
+        XCTAssertFalse(stats.turnComplete)
+        XCTAssertFalse(stats.hasInterim)
+        XCTAssertTrue(stats.inputFinishedReceived)
+        XCTAssertEqual(stats.finalSegmentCount, 1)
+        XCTAssertEqual(stats.interimUpdateCount, 1)
+        XCTAssertNotNil(stats.finishElapsed)
+        XCTAssertNotNil(stats.firstFinalElapsed)
+        XCTAssertFalse(String(reflecting: stats).contains("private preview"))
+        XCTAssertFalse(String(reflecting: stats).contains("Final text."))
+        XCTAssertFalse(String(reflecting: stats).contains(key))
+    }
+
+    func testFinalBeforeActivityEndStartsQuietPeriodAfterSuccessfulWrite() async throws {
+        let socket = FakeLiveTransport()
+        let clock = ManualLiveClock()
+        defer { clock.resolveAll() }
+        let received = expectation(description: "final before release")
+        let controlled = GeminiLiveTiming(setup: 100, finalization: 200, quietDrain: 1, send: 300)
+        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: controlled, clock: clock) { _ in received.fulfill() }
+        try await client.start()
+        socket.push(#"{"serverContent":{"inputTranscription":{"text":"Already final."}}}"#)
+        await fulfillment(of: [received], timeout: 1)
+        XCTAssertNil(clock.id(seconds: 1, ordinal: 1))
+        let before = await client.diagnostics()
+        XCTAssertFalse(before.activityEndSent)
+        let finishing = Task { try await client.finish() }
+        let drain = try await waitForSleep(clock, seconds: 1)
+        let after = await client.diagnostics()
+        XCTAssertTrue(after.activityEndSent)
+        XCTAssertFalse(after.turnComplete)
+        clock.fire(drain)
+        let result = try await finishing.value
+        XCTAssertEqual(result, "Already final.")
+    }
+
+    func testFinishedMetadataCannotPromoteInterimOrClearUnresolvedTail() async throws {
+        let socket = FakeLiveTransport()
+        let fast = GeminiLiveTiming(setup: 1, finalization: 0.12, quietDrain: 0.03, send: 1)
+        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: fast)
+        try await client.start()
+        socket.onSend = { text in
+            if text == GeminiLiveProtocol.activityEnd {
+                socket.push(#"{"serverContent":{"inputTranscription":{"text":"Committed. "},"interimInputTranscription":{"text":"unfinished"}}}"#)
+                socket.push(#"{"serverContent":{"inputTranscription":{"finished":true},"turnComplete":true}}"#)
+            }
+        }
+        do { _ = try await client.finish(); XCTFail("Metadata must not finalize the interim tail") }
+        catch { XCTAssertEqual(error as? GeminiLiveError, .finalizationTimeout) }
+        let stats = await client.diagnostics()
+        XCTAssertEqual(stats.phase, "failed")
+        XCTAssertEqual(stats.finalSegmentCount, 1)
+        XCTAssertTrue(stats.hasInterim)
+        XCTAssertTrue(stats.inputFinishedReceived)
+    }
+
+    func testInterimOnlyTimesOutWithoutInventingAFinal() async throws {
+        let socket = FakeLiveTransport()
+        let fast = GeminiLiveTiming(setup: 1, finalization: 0.12, quietDrain: 0.03, send: 1)
+        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: fast)
+        try await client.start()
+        socket.onSend = { text in
+            if text == GeminiLiveProtocol.activityEnd {
+                socket.push(#"{"serverContent":{"interimInputTranscription":{"text":"unfinished"},"turnComplete":true}}"#)
+            }
+        }
+        do { _ = try await client.finish(); XCTFail("Interim is never a final transcript") }
+        catch { XCTAssertEqual(error as? GeminiLiveError, .finalizationTimeout) }
+        let stats = await client.diagnostics()
+        XCTAssertEqual(stats.finalSegmentCount, 0)
+        XCTAssertEqual(stats.interimUpdateCount, 1)
+        XCTAssertTrue(stats.hasInterim)
+    }
+
+    func testFailedActivityEndWriteCannotCompleteFromExistingFinal() async throws {
+        let socket = FakeLiveTransport()
+        socket.failActivityEnd = true
+        let received = expectation(description: "preexisting final")
+        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: timing) { _ in received.fulfill() }
+        try await client.start()
+        socket.push(#"{"serverContent":{"inputTranscription":{"text":"Do not insert."}}}"#)
+        await fulfillment(of: [received], timeout: 1)
+        do { _ = try await client.finish(); XCTFail("A failed end write cannot complete") }
+        catch { XCTAssertEqual(error as? GeminiLiveError, .network) }
+        await client.cancel() // Controller cleanup must preserve the failure diagnostic.
+        let stats = await client.diagnostics()
+        XCTAssertEqual(stats.phase, "failed")
+        XCTAssertFalse(stats.activityEndSent)
+        XCTAssertEqual(stats.finalSegmentCount, 1)
+        XCTAssertTrue(socket.cancelled)
+    }
+
     func testTurnCompleteBeforeFinalWaitsForLateFinalAndResetsDrain() async throws {
         let socket = FakeLiveTransport()
         let clock = ManualLiveClock()
@@ -132,21 +239,22 @@ final class GeminiLiveTests: XCTestCase {
         let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: controlled, clock: clock)
         try await client.start()
         try await client.sendAudio(pcm)
+        let ended = expectation(description: "end dispatched")
         socket.onSend = { text in
             if text == GeminiLiveProtocol.activityEnd {
                 socket.push(#"{"serverContent":{"turnComplete":true}}"#)
+                ended.fulfill()
             }
         }
         let finishing = Task { try await client.finish() }
-        let firstDrain = try await waitForSleep(clock, seconds: 1, ordinal: 1)
+        await fulfillment(of: [ended], timeout: 1)
         socket.push(#"{"serverContent":{"inputTranscription":{"text":"First. "}}}"#)
-        let secondDrain = try await waitForSleep(clock, seconds: 1, ordinal: 2)
+        let firstDrain = try await waitForSleep(clock, seconds: 1, ordinal: 1)
         socket.push(#"{"serverContent":{"inputTranscription":{"text":"Last."}}}"#)
-        let lastDrain = try await waitForSleep(clock, seconds: 1, ordinal: 3)
-        // Expiry can already be queued when cancellation happens. Deliver both obsolete
+        let lastDrain = try await waitForSleep(clock, seconds: 1, ordinal: 2)
+        // Expiry can already be queued when cancellation happens. Deliver the obsolete
         // callbacks anyway; only the latest transcript revision is allowed to complete.
         clock.fire(firstDrain)
-        clock.fire(secondDrain)
         clock.fire(lastDrain)
         let result = try await finishing.value
         XCTAssertEqual(result, "First. Last.")
@@ -219,7 +327,7 @@ final class GeminiLiveTests: XCTestCase {
         let socket = FakeLiveTransport()
         let fast = GeminiLiveTiming(setup: 1, finalization: 0.15, quietDrain: 0.03, send: 1)
         let received = expectation(description: "early transcript processed")
-        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: fast) { _ in received.fulfill() }
+        let client = GeminiLiveTranscriber(apiKey: key, model: "gemini-other-live-model", transport: socket, timing: fast) { _ in received.fulfill() }
         try await client.start()
         socket.push(#"{"serverContent":{"inputTranscription":{"text":"early"},"turnComplete":true}}"#)
         await fulfillment(of: [received], timeout: 1)
@@ -249,7 +357,7 @@ final class GeminiLiveTests: XCTestCase {
         let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: timing)
         try await client.start()
         socket.onSend = { text in
-            if text == GeminiLiveProtocol.activityEnd { socket.push(#"{"serverContent":{"turnComplete":true}}"#) }
+            if text == GeminiLiveProtocol.activityEnd { socket.push(#"{"serverContent":{"inputTranscription":{"text":""},"turnComplete":true}}"#) }
         }
         do { _ = try await client.finish(); XCTFail("Expected empty transcript") }
         catch { XCTAssertEqual(error as? GeminiLiveError, .emptyTranscript) }
@@ -344,6 +452,7 @@ final class GeminiLiveTests: XCTestCase {
     func testAssistantOutputAndOptionalFinishedFlagDoNotReplaceInput() throws {
         let event = try GeminiLiveEvent.decode(Data(#"{"serverContent":{"modelTurn":{"parts":[{"text":"assistant answer"}]},"outputTranscription":{"text":"not dictation"},"inputTranscription":{"text":"spoken words","finished":true}}}"#.utf8))
         XCTAssertEqual(event.finalText, "spoken words")
+        XCTAssertTrue(event.inputFinished)
         XCTAssertFalse(event.turnComplete)
         var accumulator = GeminiLiveTranscript()
         try accumulator.consume(event)
@@ -443,6 +552,7 @@ private final class FakeLiveTransport: @unchecked Sendable, GeminiLiveTransport 
     private var isCancelled = false
     private var handler: (@Sendable (String) -> Void)?
     private var shouldStallAudio = false
+    private var shouldFailActivityEnd = false
 
     init(autoSetup: Bool = true) { self.autoSetup = autoSetup }
     var request: URLRequest? { lock.lock(); defer { lock.unlock() }; return storedRequest }
@@ -455,6 +565,10 @@ private final class FakeLiveTransport: @unchecked Sendable, GeminiLiveTransport 
     var stallAudio: Bool {
         get { lock.lock(); defer { lock.unlock() }; return shouldStallAudio }
         set { lock.lock(); defer { lock.unlock() }; shouldStallAudio = newValue }
+    }
+    var failActivityEnd: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return shouldFailActivityEnd }
+        set { lock.lock(); defer { lock.unlock() }; shouldFailActivityEnd = newValue }
     }
 
     func connect(request: URLRequest) throws {
@@ -473,6 +587,7 @@ private final class FakeLiveTransport: @unchecked Sendable, GeminiLiveTransport 
     func send(_ text: String) async throws {
         let callback = try record(text)
         callback?(text)
+        if failActivityEnd && text == GeminiLiveProtocol.activityEnd { throw URLError(.networkConnectionLost) }
         if autoSetup && text.contains("\"setup\"") { push(#"{"setupComplete":{}}"#) }
         let json = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
         let isAudio = (json?["realtimeInput"] as? [String: Any])?["audio"] != nil

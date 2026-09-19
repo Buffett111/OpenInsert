@@ -5,7 +5,7 @@ public enum GeminiError: Error, LocalizedError, Equatable {
     case invalidAPIKey, invalidModel, invalidOptions, unsupportedAudio, emptyAudio
     case requestTooLarge, responseTooLarge, invalidResponse, incompleteResponse, emptyTranscript, blocked
     case httpStatus(Int)
-    case networkFailure, timeout
+    case networkFailure, timeout, cleanupTimeout
 
     public var errorDescription: String? {
         switch self {
@@ -32,6 +32,7 @@ public enum GeminiError: Error, LocalizedError, Equatable {
             }
         case .networkFailure: return "Could not reach Gemini. Check your internet connection."
         case .timeout: return "The Gemini request timed out. Nothing was inserted."
+        case .cleanupTimeout: return "Gemini text cleanup exceeded its time limit."
         }
     }
 }

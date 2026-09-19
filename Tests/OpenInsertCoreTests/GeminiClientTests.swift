@@ -41,7 +41,7 @@ final class GeminiClientTests: XCTestCase {
         XCTAssertFalse(String(decoding: body, as: UTF8.self).contains(key))
         let config = try XCTUnwrap(json["generationConfig"] as? [String: Any])
         XCTAssertEqual(config["responseMimeType"] as? String, "application/json")
-        XCTAssertEqual((config["thinkingConfig"] as? [String: Any])?["thinkingLevel"] as? String, "low")
+        XCTAssertEqual((config["thinkingConfig"] as? [String: Any])?["thinkingLevel"] as? String, "minimal")
     }
 
     func testPolishUsesFlashLiteAndOnlyTextInput() throws {
@@ -69,6 +69,118 @@ final class GeminiClientTests: XCTestCase {
         let result = try await GeminiClient(session: session).polish(transcript: "请保留 OpenInsert", apiKey: key, options: DictationOptions())
         XCTAssertEqual(result, "請保留 OpenInsert。")
         XCTAssertEqual(StubProtocol.requestCount, 1)
+    }
+
+    func testMinimalThinkingIsRestrictedToVerifiedFlashLiteModel() throws {
+        for (model, expected) in [
+            ("gemini-3.5-flash-lite", "minimal"),
+            ("gemini-3.8-flash", "low"),
+            ("gemini-3.5-flash", "low"),
+            ("gemini-3.5-flash-lite-unknown", "low"),
+            ("gemini-3.5-flash-liter", "low")
+        ] {
+            let options = DictationOptions(model: model)
+            let requests = [
+                try GeminiClient.makePolishRequest(transcript: "Literal words", apiKey: key, options: options),
+                try GeminiClient.makeRequest(audio: audio, mimeType: "audio/wav", apiKey: key, options: options)
+            ]
+            for request in requests {
+                let body = try XCTUnwrap(request.httpBody)
+                let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                let config = try XCTUnwrap(json["generationConfig"] as? [String: Any])
+                let thinking = try XCTUnwrap(config["thinkingConfig"] as? [String: Any])
+                XCTAssertEqual(thinking["thinkingLevel"] as? String, expected, model)
+                XCTAssertEqual(thinking["includeThoughts"] as? Bool, false)
+            }
+        }
+    }
+
+    func testPolishDeadlineCancelsStalledRequestBeforeHeaders() async {
+        let stopped = expectation(description: "URL request cancelled at deadline")
+        StubProtocol.setHandler { _ in }
+        StubProtocol.setStopHandler { stopped.fulfill() }
+        let start = ProcessInfo.processInfo.systemUptime
+        do {
+            _ = try await GeminiClient(session: session, polishTimeout: 0.08).polish(transcript: "A final ASR transcript", apiKey: key, options: DictationOptions())
+            XCTFail("Expected total cleanup deadline")
+        } catch {
+            XCTAssertEqual(error as? GeminiError, .cleanupTimeout)
+        }
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1)
+        await fulfillment(of: [stopped], timeout: 1)
+        XCTAssertEqual(StubProtocol.requestCount, 1)
+    }
+
+    func testPolishDeadlineCancelsIncompleteBodyAndNeverReturnsPartialText() async {
+        let stopped = expectation(description: "body download cancelled at deadline")
+        StubProtocol.setHandler { stub in
+            stub.beginResponse(data: Data("{\"candidates\":[{\"finishReason\":\"STOP\",\"content\":".utf8))
+        }
+        StubProtocol.setStopHandler { stopped.fulfill() }
+        do {
+            _ = try await GeminiClient(session: session, polishTimeout: 0.08).polish(transcript: "Already finalized words", apiKey: key, options: DictationOptions())
+            XCTFail("A partial response must not become output")
+        } catch {
+            XCTAssertEqual(error as? GeminiError, .cleanupTimeout)
+        }
+        await fulfillment(of: [stopped], timeout: 1)
+    }
+
+    func testPolishCancellationCancelsRequestWithoutBecomingTimeout() async {
+        let started = expectation(description: "cleanup started")
+        let stopped = expectation(description: "cleanup cancelled")
+        StubProtocol.setHandler { _ in started.fulfill() }
+        StubProtocol.setStopHandler { stopped.fulfill() }
+        let task = Task {
+            try await GeminiClient(session: session, polishTimeout: 1).polish(transcript: "Literal words", apiKey: key, options: DictationOptions())
+        }
+        await fulfillment(of: [started], timeout: 1)
+        task.cancel()
+        do { _ = try await task.value; XCTFail("Expected cancellation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        await fulfillment(of: [stopped], timeout: 1)
+    }
+
+    func testAlreadyCancelledPolishDoesNotStartRequest() async {
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await GeminiClient(session: session).polish(transcript: "Literal words", apiKey: key, options: DictationOptions())
+        }
+        do { _ = try await task.value; XCTFail("Expected cancellation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertEqual(StubProtocol.requestCount, 0)
+    }
+
+    func testDeadlineDoesNotWaitForUncooperativeOperationOrAcceptItsLateResult() async {
+        await checkLateCleanupResult(cancel: false)
+    }
+
+    func testCancellationDoesNotWaitForUncooperativeOperationOrAcceptItsLateResult() async {
+        await checkLateCleanupResult(cancel: true)
+    }
+
+    private func checkLateCleanupResult(cancel: Bool) async {
+        let started = expectation(description: "operation suspended")
+        let released = expectation(description: "late operation completed without resuming caller again")
+        let suspended = SuspendedPolishOperation()
+        let task = Task {
+            try await PolishRequestDeadline().run(timeout: cancel ? 1 : 0.08) {
+                let text = await suspended.wait { started.fulfill() }
+                released.fulfill()
+                return text
+            }
+        }
+        await fulfillment(of: [started], timeout: 1)
+        if cancel { task.cancel() }
+        do { _ = try await task.value; XCTFail("Late text must not be returned") }
+        catch {
+            if cancel { XCTAssertTrue(error is CancellationError) }
+            else { XCTAssertEqual(error as? GeminiError, .cleanupTimeout) }
+        }
+        // The operation deliberately ignores cancellation. The caller has already
+        // finished; releasing it must neither change the result nor resume twice.
+        suspended.complete("stale text must never be inserted")
+        await fulfillment(of: [released], timeout: 1)
     }
 
     func testPolishRejectsEmptyAndOversizedTranscripts() {
@@ -286,11 +398,13 @@ final class GeminiClientTests: XCTestCase {
 private final class StubProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var handler: ((StubProtocol) -> Void)?
+    private static var stopHandler: (() -> Void)?
     private static var count = 0
 
     static var requestCount: Int { lock.lock(); defer { lock.unlock() }; return count }
-    static func reset() { lock.lock(); defer { lock.unlock() }; handler = nil; count = 0 }
+    static func reset() { lock.lock(); defer { lock.unlock() }; handler = nil; stopHandler = nil; count = 0 }
     static func setHandler(_ value: @escaping (StubProtocol) -> Void) { lock.lock(); defer { lock.unlock() }; handler = value }
+    static func setStopHandler(_ value: @escaping () -> Void) { lock.lock(); defer { lock.unlock() }; stopHandler = value }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -304,11 +418,41 @@ private final class StubProtocol: URLProtocol {
         }
         handler(self)
     }
-    override func stopLoading() {}
-    func respond(status: Int = 200, data: Data) {
+    override func stopLoading() {
+        Self.lock.lock()
+        let callback = Self.stopHandler
+        Self.lock.unlock()
+        callback?()
+    }
+    func beginResponse(status: Int = 200, data: Data) {
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
+    }
+    func respond(status: Int = 200, data: Data) {
+        beginResponse(status: status, data: data)
         client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
+private final class SuspendedPolishOperation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<String, Never>?
+
+    func wait(started: () -> Void) async -> String {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            self.continuation = continuation
+            lock.unlock()
+            started()
+        }
+    }
+
+    func complete(_ text: String) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: text)
     }
 }
