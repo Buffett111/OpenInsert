@@ -9,7 +9,7 @@
 | macOS service 相容性檢查 | **Passed** | 系統服務以 macOS 13 deployment target、Swift 5 mode 獨立 typecheck；不是 macOS 13 實機執行測試 |
 | Universal binary | **Passed（交叉編譯）** | `lipo -archs` 為 x86_64 與 arm64；兩者 `LC_BUILD_VERSION` minimum macOS 13.0；只有 arm64 目前主機執行已驗證 |
 | Release 打包與產物檢查 | **Passed** | `.app`、ZIP、DMG、SHA-256 產物已建立；codesign strict verification、ZIP 內容及 hdiutil checksum 驗證通過；只連結系統 framework |
-| 原生 UI | **Passed（初始介面）** | 實際開啟 app，AX 與畫面確認首頁、Option + Space、Gemini 模型欄位、未設定 key 及尚未授權狀態；不等於錄音／插入成功 |
+| 原生 UI | **Passed（初始介面／權限不足）** | 實際開啟 app，AX 與畫面確認首頁、Option + Space、Gemini 模型欄位、未設定 key 及尚未授權狀態；5 秒插入測試在缺少 Accessibility 時顯示錯誤並回到 idle，未擅自輸入；不等於錄音／插入成功 |
 | 麥克風與全域快捷鍵 | **Pending** | 待測 TCC 核准／拒絕、按住／短按及取消 |
 | 真實 Gemini 語音請求 | **Pending** | 需要使用者自己的金鑰與明確雲端同意；未宣稱繁中辨識率或 API 端到端成功 |
 | 跨 App 文字插入 | **Pending** | 待驗證 AX、剪貼簿 fallback、焦點變更與剪貼簿恢復；尚未宣稱通用相容性 |

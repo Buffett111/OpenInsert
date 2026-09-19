@@ -13,5 +13,5 @@ cp LICENSE dist/dmg-root/LICENSE.txt
 cp docs/INSTALL.txt dist/dmg-root/INSTALL.txt
 hdiutil create -volname OpenInsert -srcfolder dist/dmg-root -ov -format UDZO "dist/$stem.dmg"
 rm -rf dist/dmg-root
-shasum -a 256 "dist/$stem.zip" "dist/$stem.dmg" > "dist/$stem-SHA256SUMS.txt"
+(cd dist && shasum -a 256 "$stem.zip" "$stem.dmg") > "dist/$stem-SHA256SUMS.txt"
 echo "Packaged dist/$stem.zip and dist/$stem.dmg"
