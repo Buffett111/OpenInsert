@@ -11,10 +11,13 @@
 | 0.2 原生／universal build 與 release 產物 | **Passed** | 原生編譯、x86_64／arm64 universal 交叉編譯通過；兩者 minimum macOS 13.0。ZIP 解壓測試、DMG checksum、SHA-256 及 codesign strict verification 通過；ad-hoc 簽章，尚未公證 |
 | Live transport 與文字整理單元測試 | **Passed：46／46** | 0.2.1 實際 XCTest runner：23 個 GeminiClient 測試（含 text-only cleanup 與繁中字形）及 23 個 Live 測試；涵蓋 setup、manual VAD、PCM、interim／final、完成等待、錯誤、取消與失效計時器。fake transport 不等於真實 API |
 | PCM 轉換與 buffer 驗證 | **Passed：15／15** | `./scripts/test-audio.sh`；8／16／44.1／48／96 kHz、單／雙聲道合成 440 Hz 訊號轉為 16 kHz mono；100 ms 分塊、尾端排空、來源緩衝區複製、溢位失敗、取消，以及訂閱前 12 秒資料保留 |
-| 0.2 原生 UI | **Passed（初始狀態）** | 實際啟動 0.2.0，以 AX 與畫面確認 ⌥ Space、兩個正確模型欄位、未設定 key、串流同意預設關閉及尚未授權狀態；不代表錄音／插入成功 |
+| 0.2 原生 UI | **Passed** | 0.2.0 初始狀態確認 ⌥ Space、兩個正確模型欄位、未設定 key、串流同意預設關閉。0.2.1 安裝至 Applications 後確認設定保留、麥克風及輔助使用均顯示已啟用；沒有讀出金鑰內容 |
 | 升級與其他作業系統 | **Pending** | 舊自訂模型／同意遷移的完整情境、Intel 實機與 macOS 13 實機；目前只在 arm64 macOS 27 執行 |
 | 真實 Google Live ASR 與 Flash Lite 整理 | **Pending** | 使用自備 key 與明確同意；尤其 turnComplete + 1 秒 quiet heuristic 的真實完成行為及 late final |
-| 麥克風、全域快捷鍵與跨 App 插入 | **Pending** | 真正錄音、取消、焦點、AX／剪貼簿、終端及權限流程 |
+| TextEdit 文字插入與權限恢復 | **Passed（單一 App）** | 經使用者同意，僅重設本 App 的失效 Accessibility 紀錄，重新註冊目前已安裝副本並由系統授權；App 即時查詢變為已啟用。內建 5 秒測試將固定句子插入原本空白的 TextEdit 文件；可見文字與 `Inserted into TextEdit using Accessibility.` 訊息吻合。未使用錄音或 Gemini |
+| 麥克風、全域快捷鍵及其他插入路徑 | **Pending** | 真正錄音、取消、焦點變更、剪貼簿 fallback／恢復、終端及其他 App 相容性尚未實測；單一 TextEdit 的 AX 成功不代表通用相容性 |
+
+0.2.1 的 GitHub macOS 15 [Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35429372035) 與 [Release](https://github.com/Buffett111/OpenInsert/actions/runs/35429477688) 均成功：完整 Xcode 的 `swift test`、合成音訊檢查及 universal 建置通過；Release 另產生 ZIP／DMG／SHA-256。[0.2.1](https://github.com/Buffett111/OpenInsert/releases/tag/v0.2.1) 以未公證的 prerelease 公開。
 
 0.2.0 的本機 43 個測試通過，但同一 commit 的兩個 GitHub 工作有不同結果：一個全數通過，另一個 late-final 測試回報 `CancellationError`。僅憑紀錄不能確定原始原因。0.2.1 改用不拋錯的可取消時鐘、以 generation／write identity 拒絕失效計時器回呼，並把 late-final 測試改成可控制時鐘。另在暫存副本移除兩個保護後，兩個新回歸測試確實分別以 setup timeout／network error 失敗；沒有以重跑掩蓋失敗。
 
