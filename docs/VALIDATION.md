@@ -2,21 +2,25 @@
 
 記錄日期：2026-09-19；目前驗證版本：0.2.6／build 8（尚未發布）。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
 
-## 0.2.6 Accessibility 初始化（待實機驗證，未發布）
+## 0.2.6 Accessibility 初始化（安裝與自動複製已驗證，直接插入待測，未發布）
 
 - 已核對受影響桌面 App 的 bundle metadata：framework 名稱為 `Codex Framework.framework`，`NSPrincipalClass` 為 `BrowserCrApplication`。這支持 Chromium-based 的判斷，不能把它當成只改名的 Electron，也不證明其 AX 輸入介面已啟用。
 - 原始碼移除 Electron framework 檔名限制，改依 `AXManualAccessibility` 的實際可寫能力與 Boolean 狀態判斷；只有精確的 `BrowserCrApplication` 且 Manual 無法使用，才改要求 `AXEnhancedUserInterface`。Manual 查詢的權限／通訊錯誤及無效資料不進入替代路徑。每個目標程序啟動在本次 OpenInsert 執行期間只嘗試一次寫入，成功後保留 3 秒準備期間；嚴格焦點檢查及貼上／自動複製規則保留。這是原始碼核對，不是實機修復成功的宣告。
 - **實際 XCTest 105／105 通過，0 failures**：97 項既有測試加上 8 項初始化決策測試；使用實際 XCTest runner。新測試驗證能力與 principal class 的決策，不會啟用真實 App 的 AX 或驗證輸入框內容。
-- **建置檢查通過**：macOS 13／Swift 5 typecheck、原生與 arm64／x86_64 universal 建置、架構檢查及 strict codesign 驗證通過。新產物的本機 designated requirement 與目前安裝的 0.2.5 相同；這尚不能替代更新後權限狀態的確認。
+- **建置檢查通過**：macOS 13／Swift 5 typecheck、原生與 arm64／x86_64 universal 建置、架構檢查及 strict codesign 驗證通過。新產物的本機 designated requirement 與更新前的 0.2.5 相同；更新後的權限狀態已另行從 UI 確認如下。
 - **GitHub CI 通過**：[Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35445093242)（commit `8ed16b1`）的 105 項單元測試、15 項合成 PCM 檢查與 universal 建置全部成功。這些檢查不包含受影響 App 的實機輸入。
 - **CI 下載產物核對通過**：等待下載程序成功結束後，核對 `OpenInsert-universal.zip` 完整性、解壓後 App strict codesign、x86_64／arm64、版本 0.2.6／build 8 與最低 macOS 13.0。確認為 ad-hoc 簽章且無本機開發者識別；未執行或安裝該產物。此為 CI artifact，尚未發布 ZIP／DMG Release。
-- **尚未安裝 0.2.6**：本機鎖定，等待使用者解鎖；未操作權限或進行新版 UI／直接插入測試。0.2.5 的失敗與剪貼簿測試限制保留於下節。
+- **安裝、設定與權限保留通過**：本機版本已安裝至 `/Applications/OpenInsert.app`，確認為 0.2.6／build 8，strict codesign 驗證通過；更新前的 0.2.5 副本保存在 `/private/tmp/openinsert-v025-before-v026-install/OpenInsert.app`。新版 UI 顯示 0.2.6、API key 已儲存、Google 同意保留，麥克風與 Accessibility 均為「已啟用」。本次沒有重設權限，也沒有讀出金鑰內容。
+- **固定句自動複製與手動貼上獨立測試通過**：五秒固定文字測試未捕捉到可編輯目標後，App 顯示已複製提示，最後結果為「OpenInsert 文字插入測試成功。」。接著在新建的 TextEdit 空白文件只按 Command-V，實際出現完整相同句子；期間沒有其他剪貼簿寫入或並行錄音干擾。這確認該次無目標時自動複製的內容可手動貼上，不等於已驗證直接插入或正常貼上的剪貼簿還原。固定句路徑沒有啟動麥克風或呼叫 Google API。
+- **直接插入仍待測**：自動化嘗試 TextEdit 固定句直接插入時，TextEdit 的 AX 狀態曾顯示 focused text view，但 OpenInsert 捕捉目標回傳 `noInputField`；這不足以證明當時 TextEdit 確實為系統前景 App。後續改用座標點擊前，UI 工具回傳 `noWindowsAvailable`，因此停止操作。此次未能建立可靠的前景焦點測試條件，結果不構成 TextEdit 插入退步或成功的證據。已請使用者手動保持 ChatGPT／Codex 輸入框焦點約三秒，再以 Option-Space 測試，等待回覆。0.2.5 的失敗與當時剪貼簿測試限制保留於下節，不以本次自動複製成功取代直接插入證據。
 
 | 項目 | 狀態 | 後續需要的證據 |
 | --- | --- | --- |
-| 0.2.6 安裝、設定與權限保留 | **Pending** | 更新後確認版本、金鑰／同意及麥克風／Accessibility 狀態 |
+| 0.2.6 安裝、設定與權限保留 | **Passed** | 已確認 0.2.6／build 8、金鑰已儲存、同意保留、兩項權限啟用；未重設權限 |
+| 固定句無目標時自動複製與手動貼上 | **Passed（單次獨立測試）** | App 顯示固定句與已複製，TextEdit 新空白文件僅按 Command-V 後出現完整相同句子 |
+| TextEdit 直接插入 | **Pending（自動化焦點條件未建立）** | 先確認可靠的系統前景焦點，再由固定句測試直接送入 TextEdit；本次工具限制不是插入退步證據 |
 | 受影響 Chromium 編輯器直接插入 | **Pending** | 新初始化後取得有效焦點，並確認該次完成文字實際出現在輸入框 |
-| 自動複製與剪貼簿還原 | **Pending** | 沒有並行錄音干擾的固定句與剪貼簿所有權測試 |
+| 正常貼上的剪貼簿還原與失敗分支 | **Pending** | 所有權未變時還原、使用者更新剪貼簿時不覆寫，以及派送後不重複插入 |
 | 0.2.6 CI 與公開 Release | **CI Passed；未發布 Release** | 實機問題尚待確認，不將建置通過視為發布完成 |
 
 ## 0.2.5 焦點取得與完成結果自動複製（內部版本，未發布）
