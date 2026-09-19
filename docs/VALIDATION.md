@@ -13,6 +13,10 @@
 
 本機改以既有 Apple Development 憑證簽署，指定需求依 app identifier 與簽章憑證辨識；兩次包含程式修改的重建之 designated requirement 相同且不含 cdhash。最終版已安裝至 `/Applications/OpenInsert.app`，strict codesign 驗證通過；依使用者先前同意，僅清除本 App 舊 Accessibility 紀錄，未重設麥克風。重新授權與新版實際插入尚待解鎖 Mac 後確認。這不是 Developer ID 或 notarization；公開 CI 仍不含本機憑證、採 ad-hoc community build。
 
+0.2.3 的 GitHub macOS 15 [Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35433492829) 與 [Release](https://github.com/Buffett111/OpenInsert/actions/runs/35433595989) 均通過（commit `3e3bc8a`）：完整 Xcode 的 88 個單元測試、15 項合成 PCM 檢查、universal 建置及 ZIP／DMG 封裝成功。這些 CI 檢查不包含使用者實機的 TCC 授權或 Codex 插入。
+
+從 GitHub 下載完整產物後，ZIP／DMG 的 SHA-256、ZIP 完整性、DMG checksum、App strict codesign 驗證全部通過；公開執行檔包含 x86_64 與 arm64，確認為 ad-hoc 簽章且沒有本機開發者識別。[v0.2.3](https://github.com/Buffett111/OpenInsert/releases/tag/v0.2.3) 已公開為 prerelease。
+
 ## 0.2.2 快捷鍵、金鑰與浮動字幕修正
 
 - 實際 XCTest **56／56 通過**：原有 46 個 Live／REST 測試，加上 4 個金鑰與 6 個快捷鍵測試。確認含點號、超過舊 256 字元限制的合成金鑰可安全置於 header，無效輸入得到不含金鑰的具體錯誤；沒有讀取使用者金鑰來判斷格式。
