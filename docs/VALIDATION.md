@@ -1,15 +1,18 @@
 # 驗證紀錄
 
-記錄日期：2026-09-19；目前驗證版本：0.2.7／build 9（準備發布）。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+記錄日期：2026-09-19；目前驗證版本：0.2.7／build 9（已發布 prerelease）。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
 
-## 0.2.7 浮動框收起與建置副本（已安裝，發布檢查中）
+## 0.2.7 浮動框收起與建置副本（使用者已確認，已發布）
 
 - 正常貼上事件派送後，以 nonthrowing callback 立即通知 HUD 收起，不等待 800 ms 剪貼簿恢復，也不顯示原有兩秒完成訊息。剪貼簿恢復與所有權檢查保留；自動複製及錯誤提示分別保留六秒及十秒。派送不等於目的地提供收件確認。
 - Spotlight 查詢實際回傳 `/Applications/OpenInsert.app` 及專案 `dist/OpenInsert.app` 兩筆相同 bundle identifier，確認重複結果來自正式安裝版及開發產物。已取消後者的 LaunchServices 登錄並移入 `.build/app-staging.noindex`；正式安裝版未變更。建置腳本及 CI 已改用隱藏 staging，DMG 暫存改為退出時清理，公開壓縮檔留在 `dist`。
 - **Spotlight 索引已只剩一筆**：移動後重新執行相同 bundle identifier 的 `mdfind`，只回傳 `/Applications/OpenInsert.app`。Spotlight 原生 UI 工具讀取失敗，因此此項證據是搜尋索引結果，未宣稱已直接檢視使用者的搜尋面板。
-- **新版測試與建置通過**：105／105 XCTest、macOS 13／Swift 5 完整 App typecheck、本機 universal ZIP／DMG 封裝成功。新 staging 路徑與退出清理已實際用於打包；公開產物仍將由乾淨 CI 建置，避免上傳本機簽署資訊。
+- **新版測試與建置通過**：105／105 XCTest、macOS 13／Swift 5 完整 App typecheck、本機 universal ZIP／DMG 封裝成功。新 staging 路徑與退出清理已實際用於打包；公開產物由乾淨 CI 建置，避免上傳本機簽署資訊。
+- **0.2.7 GitHub CI 通過**：[Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35449100629) 與 [Release](https://github.com/Buffett111/OpenInsert/actions/runs/35449102426) 均成功，兩者對應 commit `dbfb7c7ca5fbb9eb5347cdf2e9e59af7c7196935`，各通過 105 個 XCTest、15 項合成 PCM 檢查及 universal 建置。Release 工作亦成功封裝 ZIP／DMG／SHA-256。
 - **已安裝 0.2.7／build 9**：`/Applications/OpenInsert.app` strict codesign 通過，新 UI 確認版本、API key 已儲存、Google 同意、麥克風與輔助使用均保留正常；未重設權限。舊版已備份，僅更新正式安裝路徑。
-- HUD 的新時序已經原始碼與型別檢查確認；已請使用者再測語音插入後是否立即收起，尚待回覆。0.2.6 的實機成功不能視為已驗證 0.2.7 HUD 時序。公開 release 產物將另行下載核對。
+- **0.2.7 HUD 實機確認成功**：使用者在 ChatGPT 輸入框再次語音輸入後，明確回覆浮動辨識框已立即消失、正常；這是本次實機互動的證據，與 0.2.6 的歷史插入測試分開記錄。
+- **Release 下載產物核對通過**：等待下載程序成功結束後，ZIP／DMG 的 SHA-256 與 manifest 及 GitHub digest 一致，ZIP 完整性、DMG checksum、解壓後 App strict codesign 均通過。App 為 0.2.7／build 9，最低 macOS 13.0，包含 x86_64 與 arm64；確認為 ad-hoc 簽章且無本機開發者識別。未執行或安裝這份 CI 產物；使用者實機測試使用的是同版本本機建置。
+- **公開發布確認**：[v0.2.7](https://github.com/Buffett111/OpenInsert/releases/tag/v0.2.7) 已於 2026-09-19 公開為未公證 prerelease，附 ZIP、DMG 與 SHA-256。未帶驗證憑證的 GitHub API 查詢回傳 HTTP 200、draft=false、prerelease=true，三個下載網址均對應 `v0.2.7`。
 
 ## 0.2.6 Accessibility 初始化（ChatGPT 插入與自動複製已確認，未發布）
 
