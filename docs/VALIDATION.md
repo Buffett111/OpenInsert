@@ -8,10 +8,11 @@
 - 收尾收到 **1 段 authoritative final，沒有 `turnComplete`**，新規則仍成功完成；這是舊規則會等到逾時的真實服務事件組合。未定稿文字沒有被升格。結果含繁體中文；測試句的 OpenInsert 名稱被辨識成 `open insert`，此測試不宣稱專有名詞或辨識品質完美。
 - 上述診斷**沒有開麥克風、沒有擷取輸入位置、沒有插入文字**，沒有讀出 Keychain 金鑰；發送的是固定合成句與空詞彙。合成器獨立 harness 另確認 244,050 bytes 的 16 kHz mono Int16 PCM 與非零振幅。
 - 實際 XCTest **88／88 通過**（後修／HTTP 30、Live 28、語言 9、原有手勢 6、金鑰 4、放鍵 recovery 7、輔助介面準備狀態 4）。涵蓋 final-only 收尾、未解 interim 不完成、metadata-only 不清除 interim、8 秒總期限的縮時取消測試、晚到回覆、語言遷移、放鍵順序及無法判定時的取消。
-- 原生／universal 編譯與 macOS 13 typecheck 通過。使用者確認能看見已安裝 0.2.3 主畫面；本次 UI 自動化對該視窗持續逾時，未將此工具問題說成 App 當機。程序取樣顯示主執行緒正常等待事件。
-- 使用者另回報無法取得 Codex 輸入位置，並確認 OpenInsert 的輔助使用仍顯示「啟用」；當前缺少授權是已確認因素。新版保留 capture 錯誤供 UI 說明。Codex 目標相容性、實體長按／短按及真實麥克風整合仍需手動驗證，合成診斷不能取代。
+- 原生／universal 編譯與 macOS 13 typecheck 通過。初期 UI 自動化逾時時，使用者仍能看見主畫面，程序取樣也顯示主執行緒正常等待事件；解鎖後已重新取得原生 UI 狀態，不能把先前工具逾時說成 App 當機。
+- 輔助使用授權已恢復：系統設定啟用目前安裝版本後，App 重新查詢顯示「已啟用」，正常重啟後仍維持。另發現專案 `dist` 副本與 `/Applications` 副本同時執行；只關閉前者並重啟後者，`eventHotKeyExistsErr (-9878)` 消失。此結果確認註冊成功，不等於實體長按／短按已實測。
+- 0.2.3 的固定文字插入測試尚未通過：自動化操作新的 TextEdit 空白文件時，App 回報焦點角色為 `AXWindow` 並拒絕插入；可見游標不足以確定測試截止當下的跨程序焦點，仍需手動測試區分操作時序與相容性。Codex 插入也仍待使用者驗證。麥克風系統開關為 on、App 判定未啟用；尚未重設或錄音，不能宣稱完整語音流程成功。
 
-本機改以既有 Apple Development 憑證簽署，指定需求依 app identifier 與簽章憑證辨識；兩次包含程式修改的重建之 designated requirement 相同且不含 cdhash。最終版已安裝至 `/Applications/OpenInsert.app`，strict codesign 驗證通過；依使用者先前同意，僅清除本 App 舊 Accessibility 紀錄，未重設麥克風。重新授權與新版實際插入尚待解鎖 Mac 後確認。這不是 Developer ID 或 notarization；公開 CI 仍不含本機憑證、採 ad-hoc community build。
+本機改以既有 Apple Development 憑證簽署，指定需求依 app identifier 與簽章憑證辨識；兩次包含程式修改的重建之 designated requirement 相同且不含 cdhash。最終版已安裝至 `/Applications/OpenInsert.app`，strict codesign 驗證通過；依使用者先前同意，僅清除本 App 舊 Accessibility 紀錄並重新授權，未重設麥克風。這不是 Developer ID 或 notarization；公開 CI 仍不含本機憑證、採 ad-hoc community build。
 
 0.2.3 的 GitHub macOS 15 [Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35433492829) 與 [Release](https://github.com/Buffett111/OpenInsert/actions/runs/35433595989) 均通過（commit `3e3bc8a`）：完整 Xcode 的 88 個單元測試、15 項合成 PCM 檢查、universal 建置及 ZIP／DMG 封裝成功。這些 CI 檢查不包含使用者實機的 TCC 授權或 Codex 插入。
 
