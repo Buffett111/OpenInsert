@@ -1,8 +1,8 @@
 # 驗證紀錄
 
-記錄日期：2026-09-19；目前原始碼驗證版本：0.3.0／build 12；公開 prerelease 為 0.2.7。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+記錄日期：2026-09-19；目前原始碼驗證版本及公開 prerelease 為 0.3.0／build 12。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
 
-## 0.3.0 介面多語系與自訂快捷鍵（未發布）
+## 0.3.0 介面多語系與自訂快捷鍵（已發布）
 
 - **多語系實作**：使用 Swift Package 本地化資源與 Foundation bundle，繁體中文及英文共用語意鍵；主視窗、快捷鍵錄製視窗、選單、HUD、狀態及錯誤訊息皆由相同 `AppLocalizer` 讀取翻譯表。介面語言獨立儲存，不修改 `AppleLanguages`、辨識文字或書寫語言偏好。缺少翻譯時回退英文。新增語言流程見 [LOCALIZATION.md](LOCALIZATION.md)。
 - **自訂快捷鍵實作**：以目前前景 sheet 的 local key monitor 接收候選，支援修飾鍵加一般按鍵或 F1–F20，候選確認後才儲存。JSON 設定保留原有三種快捷鍵的遷移；全域註冊與放鍵偵測使用相同的實際 key code。註冊衝突不覆蓋儲存設定，取消則恢復先前組合。沒有新增全域鍵盤監聽或 Input Monitoring 權限。
@@ -11,7 +11,8 @@
 - **建置與安裝通過**：macOS 13／Swift 5 typecheck、原生及 arm64／x86_64 universal 建置、strict codesign 均通過；本地化 bundle 與系統權限提示資源已隨 App 封裝。已安裝 `/Applications/OpenInsert.app` 0.3.0／build 12，designated requirement 與舊版相同；先備份 0.2.8，沒有重設權限。
 - **原生 UI 驗證通過**：在已安裝 App 切換英文與繁體中文，介面即時更新；錄製 Control–Option–R 並按 Return 儲存，再錄製另一候選按 Escape，原組合保留。重開 App 後英文與自訂快捷鍵仍保留，最後恢復繁體中文與預設 Option–Space。UI 顯示既存 API key 已儲存、Google 同意及麥克風／輔助使用啟用；書寫偏好仍為繁體中文（台灣），輸出模式未變。沒有讀出金鑰內容。
 - **驗證界線**：本次沒有重新進行真實麥克風／Google 語音流程，也未逐一驗證自訂按鍵的實體長按／短按、各種鍵盤布局、所有系統保留組合與其他 macOS 版本。現有手勢狀態機測試通過，不代表全部實機組合已測。
-- **GitHub CI 與下載產物通過**：[Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35451994585)（commit `d2a765f`）的單元測試、合成 PCM 檢查、universal 建置及 artifact 上傳均成功。下載結束後獨立驗證 ZIP 完整性、App strict codesign、版本 0.3.0 與 x86_64／arm64 架構；包含中英兩套三張翻譯表及系統權限提示。公開 CI 包採 ad-hoc 簽章、無本機開發者識別，未執行或安裝該下載包；本機安裝使用保留原授權身分的建置。此版本尚未發布 Release。
+- **GitHub CI 與下載產物通過**：[Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35451994585)（commit `d2a765f`）的單元測試、合成 PCM 檢查、universal 建置及 artifact 上傳均成功。下載結束後獨立驗證 ZIP 完整性、App strict codesign、版本 0.3.0 與 x86_64／arm64 架構；包含中英兩套三張翻譯表及系統權限提示。公開 CI 包採 ad-hoc 簽章、無本機開發者識別，未執行或安裝該下載包；本機安裝使用保留原授權身分的建置。
+- **Release 已公開且附件驗證通過**：發布 commit `4f022a9` 的 [Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35452366117) 與 [Release](https://github.com/Buffett111/OpenInsert/actions/runs/35452366132) 均成功。等待 Release 附件下載程序結束後，ZIP／DMG 的 SHA-256 與 manifest 及 GitHub digest 一致，manifest 自身的 digest 也一致；ZIP 完整性、DMG checksum、解壓 App strict codesign、兩個架構、最低 macOS 13.0、版本 0.3.0／build 12 及兩語系三張表均通過。確認為 ad-hoc、無本機開發者識別，未執行或安裝公開包。本機已安裝執行檔與先前驗證的本機 staging 完全一致，原生 UI 再次確認金鑰已儲存、同意、麥克風及輔助使用啟用，以及繁中／Option–Space 設定保留。[v0.3.0](https://github.com/Buffett111/OpenInsert/releases/tag/v0.3.0) 已公開為未公證 prerelease；未帶憑證的 GitHub API 查詢得到 HTTP 200、draft=false、prerelease=true，三個附件網址皆為正式 v0.3.0 路徑。
 
 ## 0.2.8 綠色音量聲波（未發布）
 
