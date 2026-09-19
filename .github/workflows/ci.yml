@@ -12,6 +12,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Unit tests
         run: swift test
+      - name: Synthetic PCM conversion and buffering
+        run: ./scripts/test-audio.sh
       - name: Build universal application
         run: ARCH=universal ./scripts/build-app.sh
       - name: Preserve bundle permissions in archive

@@ -6,7 +6,7 @@
 
 **這個功能已有成熟開源實作，並非 Dup 獨有。** Handy、VoiceInk、OpenWhispr 都值得先試用。新專案的價值應是範圍清楚：macOS 原生、Gemini BYOK、不要求產品帳號、不讀螢幕、對繁體中文與中英混合輸入友善，讓使用者能審查完整資料流。
 
-本案採 **Swift + AppKit/SwiftUI + AVFoundation + URLSession + Keychain**。第一版使用短錄音、停止後辨識，將原樣／清理偏好放在同次請求，優先以 Accessibility 寫入選取位置，不支援時改用剪貼簿加模擬貼上。這是工程取捨，不是已完成的速度或辨識率比較：相較引入 Electron/Tauri 與大型本地模型，原生小工具可減少打包與系統整合層，但未來支援 Windows/Linux 必須另做平台實作。
+本案採 **Swift + AppKit/SwiftUI + AVFoundation + URLSession + Keychain**。目前 0.2 使用 RAM 中的即時 PCM 串流，由 `gemini-3.5-transcribe-live` 辨識，再選擇是否以 `gemini-3.5-flash-lite` 整理文字；模型組合對齊本次可見的 Dup 設定。文字優先以 Accessibility 寫入，不支援時改用剪貼簿加模擬貼上。這是工程取捨，不是已完成的速度或辨識率比較：原生小工具可減少打包與系統整合層，但 Windows/Linux 必須另做平台實作。
 
 最難的部分通常不是呼叫辨識 API，而是焦點改變、權限未核准、輸入法、剪貼簿復原時機、遠端桌面，以及雲端失敗後仍不遺失結果。產品不應承諾「任何應用程式、任何欄位都保證成功」；應公布實測相容性與可手動複製的補救路徑。
 
@@ -15,7 +15,7 @@
 - 依專案官方 repository、實際 source file、LICENSE、Google 與 Apple 官方文件查證。未採用第三方排行榜的辨識率或速度數字。
 - 「已查證」表示閱讀文件或原始碼，**不等於已在本機安裝並完成競品端到端測試**。
 - 本文提出的架構、測試門檻與預設值是本案建議；目前專案實際完成範圍以 README、原始碼與驗證紀錄為準。
-- 對 Dup 的認識限於使用者提供的截圖及需求描述；沒有逆向、擷取其程式碼或讀取其 API key。截圖顯示恢復剪貼簿與文字插入診斷，但不能據此證明其內部演算法。
+- 對 Dup 另檢查了本機 1.20260913.0 的模型設定介面，以及已安裝程式中的模型 ID 字串；沒有複製其程式碼、讀取 API key 或攔截網路流量。這能支持模型設定結論，不能證明內部提示詞、每次呼叫或品質相同。詳見 [DUP_MODELS.md](DUP_MODELS.md)。
 - Repository 的 `main` 會變動。抽查時 OpenWhispr 的 tree SHA 為 `6d56d75e7e13ec47009e573e9ff4cded0d0ccc61`，VoiceInk 為 `af5ca313219c15f6af6ddc1edeece5acd1f6fc1b`；文末提供實作檔案連結以利重查。
 
 ## 既有專案比較
@@ -71,7 +71,7 @@ Apple 的 AX API 明確可能回傳「屬性不支援」、「物件失效」或
 
 錄音 → Gemini 音訊輸入 → 輸出整理後逐字稿 → 插入。Google 官方文件確認 Gemini 可接收音訊並產生轉錄；inline request 有 20 MB 的總請求限制，較大資料應用 Files API。[Audio understanding](https://ai.google.dev/gemini-api/docs/audio)
 
-**本案取捨：** 短篇語音輸入先採單一 inline 請求，可減少 API 往返與遠端檔案管理。總容量限制要包含 Base64 膨脹與 JSON，不是只檢查原始音訊小於 20 MB。錄音設定、最大時長與上傳上限應互相一致。
+這是 0.1 使用過的路線：短篇語音的單一 inline 請求可減少 API 往返與遠端檔案管理。總容量限制須包含 Base64 與 JSON，不是只檢查原始音訊小於 20 MB。0.2 已改用下述 Live 管線，不能沿用 batch 測試結果宣稱串流已通過。
 
 若使用 `generateContent`，官方仍提供 `POST /v1beta/models/{model}:generateContent`、`systemInstruction`、音訊 parts 與候選回覆。不要將另一個端點的 response schema 混用。[generateContent API](https://ai.google.dev/api/generate-content)
 
@@ -81,41 +81,51 @@ Apple 的 AX API 明確可能回傳「屬性不支援」、「物件失效」或
 
 建議提供「原樣」與「清理」兩種明確模式。清理只處理標點、口頭填充詞和使用者立即自我更正，保留專有名詞、數字、語言與語意；不要把口述的問題當成對 AI 的提問。字詞表以資料輸入，不成為額外 system instruction。OpenWhispr 的公開 issue 顯示 cleanup 模型把問題回答成文章的真實使用者回報，屬風險案例而非普遍故障率證據。[Issue #833](https://github.com/OpenWhispr/openwhispr/issues/833)
 
+0.2 實作此分工：確定的 ASR 文字先保存在 RAM，`polished` 再呼叫 Flash Lite 的 text-only `generateContent`；`verbatim` 不呼叫整理模型。整理失敗保留 ASR 結果供手動複製，但停止本次自動插入，讓使用者先核對。
+
+### C. 0.2 的即時 ASR
+
+依 [Google Live Transcription 文件](https://ai.google.dev/gemini-api/docs/live-api/live-transcribe)，`gemini-3.5-transcribe-live` 使用 WebSocket、raw PCM 與 `TEXT` 輸出，提供 interim／final 轉錄。0.2 以 AVAudioEngine 擷取並重取樣為 16 kHz mono Int16 PCM、約 100 ms 分塊；128 chunks 的有界佇列溢位時報錯，不靜默丟音訊，不建立音訊檔案。
+
+ASR 使用自動語言偵測與 `VERBATIM`；繁中偏好在確定轉錄後進行本機 `Hans-Hant` 字形轉換，英文保留。這不等於已量測台灣華語辨識率，也不保證特定台灣用詞。可選的 Flash Lite 整理接在後面；專用 Live ASR 不能只填進原本的 `generateContent` URL。
+
+Push-to-talk 關閉自動 VAD，以 `activityStart`／`activityEnd` 控制。收到 `setupComplete` 後才傳送音訊；interim 僅作未定稿預覽。由於 [WebSocket reference](https://ai.google.dev/api/live)未保證 input transcript 與其他訊息的順序，0.2 以 `turnComplete`、無未解決 interim、1 秒沒有轉錄更新，搭配 20 秒 deadline 判定完成。這是 heuristic，足夠晚到的片段仍可能遺漏；尚需真實服務驗證，不能聲稱有完整收件證明。
+
 ### 模型選擇應可以更新
 
 查證時 `gemini-2.5-flash` 的官方 model card 仍列為 stable、支援音訊輸入與文字輸出。停用時程表亦列出新一代 `gemini-3.5-transcribe`、`gemini-3.5-transcribe-live`；因此不能把模型名稱永久寫死，也不能假設所有 Gemini 模型共用同一端點。[2.5 Flash model card](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash)、[Gemini deprecations](https://ai.google.dev/gemini-api/docs/deprecations)
 
-對第一版而言，選擇已支援的 Flash + `generateContent` 是控制實作範圍的決策，不代表其繁體中文表現勝過最新專用轉錄模型。日後加入專用轉錄 provider 時，應實作正確的 Interactions API contract，而不是只在舊 URL 換掉 model ID。模型速度、台灣口音、中英混用與用詞錯誤須以自己的語料量測。
+Flash + `generateContent`、專用非串流轉錄的 Interactions API、專用 Live ASR 的 WebSocket 是不同 contract。更新模型前要查正確端點、音訊格式、response schema 與完成語意，不能只換 model ID。模型速度、台灣口音、中英混用與用詞錯誤須以自己的語料量測。
 
-本專案目前預設 `gemini-3.8-flash`，並允許修改 model ID；不是以舊版 2.5 作為預設。上述 2.5 調查用於說明現存相容路線，不能解讀為推薦舊版優於新版。實際 API 組裝與限制見 [ARCHITECTURE.md](ARCHITECTURE.md)。
+本專案 0.2 分開 ASR 與整理模型欄位，預設分別是 `gemini-3.5-transcribe-live` 與 `gemini-3.5-flash-lite`；上述 2.5 調查只說明曾查核的相容路線。選擇 3.5 的理由是對齊已觀察到的 Dup 設定，並非比較後認定它勝過所有模型。[Flash Lite 模型頁](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite)、[本機 Dup 證據](DUP_MODELS.md)。實際限制見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ### 金鑰與資料流
 
 - 每位使用者自行提供金鑰，存於 macOS Keychain；不隨 binary、repository、範例設定或 crash log 散布共同 key。HTTP key 放 header，避免出現在 URL 與一般 URL log。Google 官方要求保密且不要將 key 放入 source control。[API key 指引](https://ai.google.dev/gemini-api/docs/api-key)
-- 音訊與選用詞彙會直接送往 Google；啟用第二階段修正時，逐字稿也會送往 Google。無產品後端與無畫面擷取，仍不等於完全離線。
+- 音訊與詞彙會在錄音期間直接送往 Google；第二階段整理另送逐字稿、語言偏好與詞彙。0.2 重新要求串流同意，不沿用 0.1 的錄完上傳同意。無產品後端與無畫面擷取，仍不等於離線；取消無法收回已傳送的資料。
 - Google 對未付費／付費服務的資料使用條件不同：未付費服務可能用於改善服務並經人工檢閱；付費服務不以提示與回覆改善產品，但仍有特定日誌保留。發布頁應連結官方條款，而非自行宣稱零保留。[Gemini API 條款](https://ai.google.dev/gemini-api/terms)
-- 本機暫存音訊應在完成、取消及失敗路徑刪除；若 App 崩潰可能留下暫存，啟動時只清理本 App 的過期檔案。結果可在記憶體保留供重試／複製，持久歷史預設不開啟。
+- 0.2 音訊、預覽與最後結果只保存在 App 記憶體，不建立錄音檔或逐字稿資料庫；作業系統 swap／crash diagnostics 不在此承諾內。新管線也不自動清除舊版異常退出可能留下的暫存。
 - API 費用由使用者自己的 Google project 承擔；定價、免費額度與 rate limit 會變動。不要在產品文案保證免費或固定每月費用，依選用模型連到[官方定價](https://ai.google.dev/gemini-api/docs/pricing)。
 
-## 建議的第一版架構
+## 目前 0.2 的架構
 
 ```text
 全域快捷鍵
     ↓
-錄音狀態機（idle → recording → transcribing → ready / failed）
+錄音狀態機（idle → preparing → recording → transcribing → inserting / idle）
     ↓
-AVFoundation 麥克風錄音 → 僅 App 自己的短期音訊檔
+AVAudioEngine → 重取樣 PCM → 有界 RAM 佇列
     ↓
-Gemini provider（使用者金鑰 / timeout / cancellation / response validation）
+Gemini Live ASR（使用者金鑰 / manual VAD / finalization / cancellation）
     ↓
-可選文字修正 → 記憶體中的最後結果
+本機繁中字形處理 → 可選 Flash Lite 文字整理 → RAM 中的最後結果
     ↓
-目標確認 → 剪貼簿交易 → Command-V → 條件式恢復
+目標確認 → AXSelectedText；不支援時剪貼簿 → Command-V → 條件式恢復
 ```
 
-建議將錄音、網路、設定／金鑰、快捷鍵與文字插入拆成元件；辨識核心應可注入 HTTP transport，以離線 fixture 測試空候選、blocked response、截斷輸出、429、非 JSON 與取消。UI 不需要把每個 HTTP 細節暴露給一般使用者，但錯誤應能分辨「沒有金鑰」、「權限未開」、「額度／頻率限制」、「辨識失敗」與「未自動插入」。
+錄音、Live ASR、文字整理、設定／金鑰、快捷鍵與文字插入拆成元件。網路測試分別注入 WebSocket／HTTP transport；原生音訊另驗證重取樣與 buffer 行為。UI 不需要暴露所有協定細節，但錯誤應能分辨「沒有金鑰」、「權限未開」、「額度／頻率限制」、「辨識失敗」與「未自動插入」。
 
-全域快捷鍵應支援避開 Spotlight、輸入法切換及其他聽寫工具的衝突，註冊失敗時顯示可操作的錯誤。第一版可以先做切換錄音；若做按住說話，還要處理 modifiers、repeat、失去 key-up、Secure Input 與取消，不能只把同一 toggle handler 掛到 keyDown/keyUp。
+全域快捷鍵預設 Option + Space，支援按住或短按切換並提供替代組合；註冊失敗須顯示錯誤。modifiers、repeat、失去 key-up、Secure Input 與取消仍需系統層整合測試，不能只把同一 toggle handler 掛到 keyDown/keyUp。
 
 ## 測試與驗收建議
 
@@ -129,6 +139,9 @@ Gemini provider（使用者金鑰 / timeout / cancellation / response validation
 | 原剪貼簿是文字、圖片、檔案、多格式；等待期間複製新內容 | 保存可恢復格式；不覆蓋使用者後來複製的內容 |
 | 麥克風／Accessibility 拒絕後再開啟；錄音中撤銷權限 | 能離開忙碌狀態、引導到正確設定、不假成功 |
 | 取消、timeout、離線、429、401／403、空回覆、截斷回覆 | 不插入錯誤訊息、不重複插入；結果／重試狀態可理解 |
+| Live setup、interim 替換、final 累積、turnComplete 前後的 final、超過 1 秒的 late final | 不插入未定稿；量測完成 heuristic 的延遲與漏段限制；沒有完成訊號時不假成功 |
+| 48 kHz／44.1 kHz 麥克風、立體聲、末尾不足 100 ms、網路阻塞、裝置中斷 | 正確重取樣並排空尾端；溢位與 drop 顯示失敗，不靜默缺字 |
+| 逐字／整理模式、整理失敗、0.1 升級 | 跳過或只傳文字給 LLM；失敗保留 ASR 文字並停止自動插入；重新要求串流同意 |
 | 台灣口音、國英切換、人名、產品名、數字、日期、程式碼 | 分別計算辨識錯誤與修正新增錯誤，人工核對語意 |
 | 僅背景噪音、靜音、極短錄音 | 不把幻覺文字自動貼出；記錄尚未達成的防護 |
 | 冷啟動與連續多次輸入 | 記錄停止錄音至結果、至貼上命令的 P50/P95；不以主觀「很快」代替數據 |

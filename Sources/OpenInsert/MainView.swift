@@ -22,7 +22,7 @@ struct MainView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("MIT · v0.1.0").font(.caption.monospaced()).foregroundStyle(.secondary)
+                Text("MIT · v0.2.0").font(.caption.monospaced()).foregroundStyle(.secondary)
                     .padding(.vertical, 6).padding(.horizontal, 10)
                     .background(.quaternary, in: Capsule())
             }
@@ -82,6 +82,13 @@ struct MainView: View {
                 Label(settings.hotKey.displayName, systemImage: "keyboard").font(.headline)
                 Text("短按開始，再按結束；長按錄音，放開結束。").font(.caption).foregroundStyle(.secondary)
             }.padding(13).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+            if !controller.liveText.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("即時預覽 · 尚未定稿").font(.caption.weight(.semibold)).foregroundStyle(accent)
+                    Text(controller.liveText).font(.body).textSelection(.enabled)
+                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+            }
             HStack {
                 Text("最近一次結果").font(.headline)
                 Spacer()
@@ -113,7 +120,7 @@ struct MainView: View {
                     Text("輕度整理").tag(CleanupMode.polished); Text("逐字辨識").tag(CleanupMode.verbatim)
                 }.pickerStyle(.segmented).labelsHidden()
             }
-            setting("語言偏好", detail: "預設繁體中文並保留口述英文；可改為你需要的語言。") {
+            setting("文字語言偏好", detail: "ASR 自動偵測中英混用。預設在本機轉成繁中字形；輕度整理也會套用此偏好。") {
                 TextField("語言", text: $settings.language).textFieldStyle(.roundedBorder)
             }
             setting("自訂詞彙", detail: "例如人名、產品名與術語，每行一個。這些詞彙會和錄音一起送到 Google。") {
@@ -138,10 +145,13 @@ struct MainView: View {
                 Button("儲存到 Keychain") { if controller.saveKey(keyDraft) { keyDraft = "" } }.disabled(keyDraft.isEmpty)
                 Button("刪除") { controller.deleteKey() }.disabled(!controller.hasAPIKey)
             }.disabled(controller.busy)
-            setting("Gemini 模型", detail: "可填入支援音訊輸入與 JSON 輸出的 generateContent 模型。模型可用性依 Google 帳號與區域而異。") {
-                TextField("模型 ID", text: $settings.model).textFieldStyle(.roundedBorder).disabled(controller.busy)
+            setting("即時 ASR 模型", detail: "與你安裝的 Dup 相同：Gemini 3.5 Transcribe Live，透過 Live API 串流辨識。") {
+                TextField("Live ASR 模型 ID", text: $settings.asrModel).textFieldStyle(.roundedBorder).disabled(controller.busy)
             }
-            Toggle("我同意將主動錄製的音訊與詞彙直接傳送至 Google Gemini", isOn: $settings.cloudConsent)
+            setting("文字整理模型", detail: "與 Dup 相同：Gemini 3.5 Flash Lite。只在「輕度整理」模式將逐字稿另送一次整理請求。") {
+                TextField("文字模型 ID", text: $settings.model).textFieldStyle(.roundedBorder).disabled(controller.busy)
+            }
+            Toggle("我同意錄音時即串流音訊與詞彙至 Google，並依模式傳送逐字稿整理", isOn: $settings.cloudConsent)
                 .disabled(controller.busy)
             Text("使用自己的 API key，費用與資料處理規則依你的 Google 帳號方案。OpenInsert 不經過開發者的伺服器。")
                 .font(.caption).foregroundStyle(.secondary)
@@ -154,15 +164,15 @@ struct MainView: View {
     private var about: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("一條簡單、可檢查的資料路徑。").font(.title3.weight(.semibold))
-            Text("麥克風 → 暫存 WAV → Google Gemini → 純文字 → 目前輸入位置")
+            Text("麥克風 → Transcribe Live → Flash Lite（可選）→ 文字插入")
                 .font(.body.monospaced()).padding(16).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-            Text("• 沒有螢幕截圖、OCR、螢幕錄製權限或分析追蹤。\n• 暫存錄音在停止或取消時刪除；異常中止的檔案會在下次啟動錄音時清理。\n• 最近結果只保留在記憶體，結束 App 即消失。\n• 為避免貼錯位置，切換 App／輸入欄位時會停止自動插入。\n• 密碼欄位與部分受保護的編輯器不支援自動插入。")
+            Text("• 沒有螢幕截圖、OCR、螢幕錄製權限或分析追蹤。\n• 音訊以 PCM 在記憶體中緩衝並串流，不寫錄音檔。\n• 取消會停止錄音與連線；已送出的音訊無法收回。\n• 最近結果只保留在記憶體，結束 App 即消失。\n• 切換 App／欄位時停止自動插入，密碼欄位不支援。")
                 .font(.callout).lineSpacing(7)
             HStack {
                 Link("Google API 資料政策 ↗", destination: URL(string: "https://ai.google.dev/gemini-api/terms")!)
                 Link("Gemini 模型文件 ↗", destination: URL(string: "https://ai.google.dev/gemini-api/docs/models")!)
             }
-            Text("OpenInsert 0.1.0 · MIT License\n原始碼提供可重現建置、測試、研究報告與發布流程。與 Dup 無隸屬關係。")
+            Text("OpenInsert 0.2.0 · MIT License\n採用與 Dup 設定相同的 ASR 與文字模型；提示詞與程式由本專案獨立實作。與 Dup 無隸屬關係。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

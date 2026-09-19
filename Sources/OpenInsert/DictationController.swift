@@ -9,6 +9,7 @@ import OpenInsertCore
     @Published private(set) var phase: Phase = .idle
     @Published var message = "設定 API key 後，將游標放到輸入欄位即可開始。"
     @Published var lastText = ""
+    @Published private(set) var liveText = ""
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var level: Float = 0
     @Published private(set) var hasAPIKey = false
@@ -16,10 +17,12 @@ import OpenInsertCore
     @Published private(set) var microphoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     @Published private(set) var hotKeyError: String?
     let settings: SettingsStore
-    private let recorder = AudioRecorder()
+    private let recorder = StreamingAudioRecorder()
     private let inserter = TextInserter()
     private let hotKey = GlobalHotKey()
     private var operation: Task<Void, Never>?
+    private var sender: Task<Void, Error>?
+    private var liveSession: GeminiLiveTranscriber?
     private var timer: Timer?
     private var target: TextInserter.Target?
     private var pressedAt: Date?
@@ -42,8 +45,8 @@ import OpenInsertCore
         switch phase {
         case .idle: return "隨時開口，文字就位。"
         case .preparing: return "正在準備麥克風…"
-        case .recording: return "正在聆聽…"
-        case .transcribing: return "正在辨識與整理…"
+        case .recording: return "正在即時辨識…"
+        case .transcribing: return "正在完成辨識與文字整理…"
         case .inserting: return "正在插入文字…"
         case .testing: return "準備測試文字插入…"
         }
@@ -116,13 +119,39 @@ import OpenInsertCore
         stopWhenReady = false
         phase = .preparing
         let token = UUID(); generation = token
+        liveText = ""
+        let client = GeminiLiveTranscriber(apiKey: sessionKey, model: settings.asrModel,
+            languageCodes: [], vocabulary: settings.vocabulary.split(whereSeparator: \.isNewline).map(String.init),
+            onPartial: { [weak self] text in
+                Task { @MainActor in
+                    guard let self, self.generation == token, self.busy else { return }
+                    self.liveText = text
+                }
+            })
+        liveSession = client
         operation = Task { [weak self] in
             guard let self else { return }
             do {
-                try await recorder.start()
+                let stream = try await recorder.start()
                 guard generation == token, !Task.isCancelled else { return }
                 phase = .recording
-                message = target == nil ? "正在錄音；這次將保留結果供手動複製。" : "放開快捷鍵結束；短按可切換錄音。"
+                message = target == nil ? "音訊正串流至 Google；這次將保留結果供手動複製。" : "音訊正串流至 Google。放開快捷鍵結束；短按可切換錄音。"
+                sender = Task { [weak self] in
+                    do {
+                        try await client.start()
+                        for try await chunk in stream {
+                            try Task.checkCancellation()
+                            try await client.sendAudio(chunk)
+                        }
+                    } catch {
+                        await client.cancel()
+                        if let self, self.generation == token, self.phase == .recording {
+                            self.recorder.cancel()
+                            self.reset(message: error.localizedDescription)
+                        }
+                        throw error
+                    }
+                }
                 elapsed = 0
                 microphoneGranted = true
                 timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -135,6 +164,7 @@ import OpenInsertCore
                 }
                 if stopWhenReady { finishRecording() }
             } catch {
+                await client.cancel()
                 guard generation == token else { return }
                 reset(message: error.localizedDescription)
             }
@@ -143,48 +173,62 @@ import OpenInsertCore
     func finishRecording() {
         guard phase == .recording else { return }
         timer?.invalidate(); timer = nil
-        do {
-            let duration = recorder.duration
-            let audio = try recorder.stop()
-            guard duration >= 0.35 else { reset(message: "錄音太短，請再試一次。"); return }
-            phase = .transcribing
-            message = "音訊正直接傳送至 Google Gemini。"
-            let key = sessionKey; sessionKey = ""
-            let options = sessionOptions
-            let capturedTarget = target
-            let restore = sessionRestore
-            let token = generation
-            operation = Task { [weak self] in
-                guard let self else { return }
-                do {
-                    let text = try await GeminiClient().transcribe(audio: audio, mimeType: "audio/wav", apiKey: key, options: options)
-                    try Task.checkCancellation()
-                    guard generation == token else { return }
-                    lastText = text
-                    guard let capturedTarget else {
-                        reset(message: "辨識完成。未取得輸入位置，請複製下方結果。"); return
-                    }
-                    phase = .inserting
-                    let method = try await inserter.insert(text, into: capturedTarget, restoreClipboard: restore)
-                    guard generation == token else { return }
-                    reset(message: method)
-                } catch {
-                    guard generation == token else { return }
-                    reset(message: error is CancellationError ? "已取消。" : error.localizedDescription)
+        guard let client = liveSession, let sending = sender else { cancel(); return }
+        let duration = recorder.duration
+        recorder.stop()
+        guard duration >= 0.35 else { cancel(); message = "錄音太短，請再試一次。"; return }
+        phase = .transcribing
+        message = "正在等待 Live ASR 的最後片段。"
+        let key = sessionKey; sessionKey = ""
+        let options = sessionOptions
+        let capturedTarget = target
+        let restore = sessionRestore
+        let token = generation
+        operation = Task { [weak self] in
+            guard let self else { return }
+            do {
+                // Drain every recorded chunk before sending the end-of-activity marker.
+                try await sending.value
+                let raw = options.applyingOrthography(to: try await client.finish())
+                try Task.checkCancellation()
+                guard generation == token else { return }
+                lastText = raw
+                liveText = ""
+                var text = raw
+                if options.mode == .polished {
+                    message = "Live 辨識完成，正在使用 \(options.model) 輕度整理。"
+                    text = try await GeminiClient().polish(transcript: raw, apiKey: key, options: options)
                 }
+                try Task.checkCancellation()
+                guard generation == token else { return }
+                lastText = text
+                guard let capturedTarget else {
+                    reset(message: "辨識完成。未取得輸入位置，請複製下方結果。"); return
+                }
+                phase = .inserting
+                let method = try await inserter.insert(text, into: capturedTarget, restoreClipboard: restore)
+                guard generation == token else { return }
+                reset(message: method)
+            } catch {
+                await client.cancel()
+                guard generation == token else { return }
+                reset(message: error is CancellationError ? "已取消。已送出的音訊無法收回。" : "\(error.localizedDescription) 已完成的辨識結果仍保留供複製。")
             }
-        } catch { reset(message: error.localizedDescription) }
+        }
     }
     func cancel() {
         guard phase != .inserting else { return }
         generation = UUID()
         operation?.cancel(); operation = nil
+        sender?.cancel(); sender = nil
+        if let client = liveSession { Task { await client.cancel() } }
         recorder.cancel()
-        reset(message: "已取消；本次錄音已刪除。")
+        reset(message: "已取消；本機音訊緩衝已釋放，已傳送至 Google 的音訊無法收回。")
     }
     private func reset(message: String) {
         timer?.invalidate(); timer = nil
         sessionKey = ""; target = nil; stopWhenReady = false; pressedAt = nil
+        liveSession = nil; sender = nil
         phase = .idle; level = 0
         self.message = message
     }
@@ -220,5 +264,9 @@ import OpenInsertCore
             }
         }
     }
-    func shutdown() { operation?.cancel(); recorder.cancel(); timer?.invalidate(); hotKey.unregister() }
+    func shutdown() {
+        operation?.cancel(); sender?.cancel()
+        if let client = liveSession { Task { await client.cancel() } }
+        recorder.cancel(); timer?.invalidate(); hotKey.unregister()
+    }
 }

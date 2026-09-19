@@ -1,11 +1,19 @@
-OpenInsert 0.1.0 — macOS 13 or later
+OpenInsert 0.2.0 — macOS 13 or later
 
 1. Drag OpenInsert.app to Applications.
 2. Open it and configure your own Gemini API key in Connection & Permissions.
 3. Enable microphone and Accessibility permission for OpenInsert.
-4. Agree to sending your actively recorded audio and vocabulary directly to Google.
+4. Agree to live audio streaming and optional transcript cleanup by Google.
+   Upgrading from 0.1 requires new consent; audio is sent while you speak.
 5. Quit other apps that use Option + Space. Focus a text field.
 6. Hold Option + Space, speak, and release. Or tap once to start and again to stop.
+
+Default ASR: gemini-3.5-transcribe-live (WebSocket, automatic language detection).
+Default optional cleanup: gemini-3.5-flash-lite (text-only generateContent).
+Verbatim mode skips cleanup. Cleanup failure preserves the finalized ASR result
+for manual copy and prevents automatic insertion. Unfinalized previews are never inserted.
+Audio uses bounded RAM buffers; OpenInsert 0.2 creates no recording files.
+Cancelling cannot recall audio already sent. Review important dictated text.
 
 This community build is ad-hoc signed, not Apple Developer ID signed or notarized.
 macOS may block a downloaded build. Inspect the source or build locally if needed.
@@ -15,3 +23,7 @@ https://support.apple.com/en-us/102445
 Automatic insertion does not work in every app. It never presses Return.
 Results remain available for manual copy if the destination changes or refuses input.
 Gemini usage, pricing, and data processing follow your Google account's terms.
+The Live completion rule uses turnComplete plus a one-second quiet interval with
+no unresolved interim text, subject to a 20-second deadline. It is a heuristic,
+not a guaranteed server completion receipt. See docs/VALIDATION.md in the source
+repository for the real-service and cross-app checks completed for this release.

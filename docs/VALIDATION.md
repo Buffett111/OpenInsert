@@ -1,6 +1,24 @@
 # 驗證紀錄
 
-記錄日期：2026-09-19；版本：0.1.0。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分實際通過與尚待完成的項目；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+記錄日期：2026-09-19；目前版本：0.2.0。測試環境為 macOS 27.0（26A428）、arm64、Apple Swift 6.4、Command Line Tools MacOSX27.0 SDK。此頁區分新版已執行檢查、待驗證項目與 0.1 歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+
+## 0.2 即時串流管線
+
+以下結果已在本機實際執行。核心測試使用 fake HTTP／WebSocket transport；音訊檢查使用合成訊號，均不需要 API key 或錄製麥克風。
+
+| 項目 | 狀態 | 證據與範圍 |
+| --- | --- | --- |
+| 0.2 原生／universal build 與 release 產物 | **Passed** | 原生編譯、x86_64／arm64 universal 交叉編譯通過；兩者 minimum macOS 13.0。ZIP 解壓測試、DMG checksum、SHA-256 及 codesign strict verification 通過；ad-hoc 簽章，尚未公證 |
+| Live transport 與文字整理單元測試 | **Passed：43／43** | 實際 XCTest runner：23 個 GeminiClient 測試（含 text-only cleanup 與繁中字形）及 20 個 Live 測試；涵蓋 setup、manual VAD、PCM、interim／final、完成等待、錯誤及取消。fake transport 不等於真實 API |
+| PCM 轉換與 buffer 驗證 | **Passed：15／15** | `./scripts/test-audio.sh`；8／16／44.1／48／96 kHz、單／雙聲道合成 440 Hz 訊號轉為 16 kHz mono；100 ms 分塊、尾端排空、來源緩衝區複製、溢位失敗、取消，以及訂閱前 12 秒資料保留 |
+| 0.2 原生 UI | **Passed（初始狀態）** | 實際啟動 0.2.0，以 AX 與畫面確認 ⌥ Space、兩個正確模型欄位、未設定 key、串流同意預設關閉及尚未授權狀態；不代表錄音／插入成功 |
+| 升級與其他作業系統 | **Pending** | 舊自訂模型／同意遷移的完整情境、Intel 實機與 macOS 13 實機；目前只在 arm64 macOS 27 執行 |
+| 真實 Google Live ASR 與 Flash Lite 整理 | **Pending** | 使用自備 key 與明確同意；尤其 turnComplete + 1 秒 quiet heuristic 的真實完成行為及 late final |
+| 麥克風、全域快捷鍵與跨 App 插入 | **Pending** | 真正錄音、取消、焦點、AX／剪貼簿、終端及權限流程 |
+
+## 0.1.0 歷史驗證
+
+以下是在改用 Live 前完成的 batch 管線紀錄，只支持當時版本。它們不能取代 0.2 的重新建置與回歸測試。
 
 | 項目 | 狀態 | 證據與範圍 |
 | --- | --- | --- |
@@ -15,7 +33,7 @@
 | 跨 App 文字插入 | **Pending** | 待驗證 AX、剪貼簿 fallback、焦點變更與剪貼簿恢復；尚未宣稱通用相容性 |
 | Developer ID 簽章與公證 | **未完成** | 本次為 ad hoc 簽章，沒有 Developer ID 發布憑證與 notarization；下載後可能被 macOS 阻擋 |
 
-## 核心測試涵蓋
+## 0.1 核心測試涵蓋
 
 19 個 XCTest 包含固定 HTTPS origin、API key header、inline audio、詞彙作為資料、model／key／偏好格式檢查、Base64 後容量上限、MIME／空音訊、fake network round trip、錯誤內容不外洩、timeout、取消、拒絕 redirect、response 大小、thought 排除、完成狀態、安全阻擋、無語音與拒絕回覆、缺漏／多候選／錯誤 JSON、轉錄長度及控制字元。
 

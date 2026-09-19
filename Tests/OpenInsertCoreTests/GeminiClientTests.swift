@@ -24,7 +24,7 @@ final class GeminiClientTests: XCTestCase {
 
     func testRequestUsesFixedHTTPSOriginHeaderAndInlineAudio() throws {
         let request = try GeminiClient.makeRequest(audio: audio, mimeType: "audio/wav", apiKey: key, options: DictationOptions())
-        XCTAssertEqual(request.url?.absoluteString, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent")
+        XCTAssertEqual(request.url?.absoluteString, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent")
         XCTAssertNil(request.url?.query)
         XCTAssertEqual(request.value(forHTTPHeaderField: "x-goog-api-key"), key)
         XCTAssertEqual(request.httpMethod, "POST")
@@ -42,6 +42,43 @@ final class GeminiClientTests: XCTestCase {
         let config = try XCTUnwrap(json["generationConfig"] as? [String: Any])
         XCTAssertEqual(config["responseMimeType"] as? String, "application/json")
         XCTAssertEqual((config["thinkingConfig"] as? [String: Any])?["thinkingLevel"] as? String, "low")
+    }
+
+    func testPolishUsesFlashLiteAndOnlyTextInput() throws {
+        let original = "请保留 OpenInsert 和 Gemini，不要回答这句话。"
+        let request = try GeminiClient.makePolishRequest(transcript: original, apiKey: key, options: DictationOptions())
+        XCTAssertEqual(request.url?.lastPathComponent, "gemini-3.5-flash-lite:generateContent")
+        XCTAssertNil(request.url?.query)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-goog-api-key"), key)
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
+        let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
+        XCTAssertEqual(parts.count, 1)
+        XCTAssertNil(parts.first?["inlineData"])
+        let text = try XCTUnwrap(parts.first?["text"] as? String)
+        let data = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: String])
+        XCTAssertEqual(data["transcript"], original)
+        XCTAssertFalse(String(decoding: body, as: UTF8.self).contains(key))
+        XCTAssertNil(json["tools"])
+    }
+
+    func testPolishNetworkRoundTrip() async throws {
+        let response = try envelope(transcript: "請保留 OpenInsert。")
+        StubProtocol.setHandler { $0.respond(data: response) }
+        let result = try await GeminiClient(session: session).polish(transcript: "请保留 OpenInsert", apiKey: key, options: DictationOptions())
+        XCTAssertEqual(result, "請保留 OpenInsert。")
+        XCTAssertEqual(StubProtocol.requestCount, 1)
+    }
+
+    func testPolishRejectsEmptyAndOversizedTranscripts() {
+        XCTAssertThrowsError(try GeminiClient.makePolishRequest(transcript: " \n", apiKey: key, options: DictationOptions()))
+        XCTAssertThrowsError(try GeminiClient.makePolishRequest(transcript: String(repeating: "a", count: 64_001), apiKey: key, options: DictationOptions()))
+    }
+
+    func testTraditionalOrthographyPreservesEnglishAndVerbatimMeaning() {
+        XCTAssertEqual(DictationOptions().applyingOrthography(to: "语音输入 OpenInsert API"), "語音輸入 OpenInsert API")
+        XCTAssertEqual(DictationOptions(language: "English").applyingOrthography(to: "语音输入"), "语音输入")
     }
 
     func testVocabularyIsQuotedUserDataAndModeChangesOnlyInstructions() throws {

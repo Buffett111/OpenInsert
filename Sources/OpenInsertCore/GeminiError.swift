@@ -10,7 +10,7 @@ public enum GeminiError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .invalidAPIKey: return "Enter a valid Gemini API key in Settings."
-        case .invalidModel: return "Enter a Gemini model ID, such as gemini-3.8-flash."
+        case .invalidModel: return "Enter a compatible Gemini model ID, such as gemini-3.5-flash-lite for text cleanup."
         case .invalidOptions: return "Language or vocabulary settings are too long."
         case .unsupportedAudio: return "This audio format is not supported."
         case .emptyAudio: return "No audio was recorded."
