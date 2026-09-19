@@ -8,6 +8,8 @@
 - 原始碼移除 Electron framework 檔名限制，改依 `AXManualAccessibility` 的實際可寫能力與 Boolean 狀態判斷；只有精確的 `BrowserCrApplication` 且 Manual 無法使用，才改要求 `AXEnhancedUserInterface`。Manual 查詢的權限／通訊錯誤及無效資料不進入替代路徑。每個目標程序啟動在本次 OpenInsert 執行期間只嘗試一次寫入，成功後保留 3 秒準備期間；嚴格焦點檢查及貼上／自動複製規則保留。這是原始碼核對，不是實機修復成功的宣告。
 - **實際 XCTest 105／105 通過，0 failures**：97 項既有測試加上 8 項初始化決策測試；使用實際 XCTest runner。新測試驗證能力與 principal class 的決策，不會啟用真實 App 的 AX 或驗證輸入框內容。
 - **建置檢查通過**：macOS 13／Swift 5 typecheck、原生與 arm64／x86_64 universal 建置、架構檢查及 strict codesign 驗證通過。新產物的本機 designated requirement 與目前安裝的 0.2.5 相同；這尚不能替代更新後權限狀態的確認。
+- **GitHub CI 通過**：[Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/35445093242)（commit `8ed16b1`）的 105 項單元測試、15 項合成 PCM 檢查與 universal 建置全部成功。這些檢查不包含受影響 App 的實機輸入。
+- **CI 下載產物核對通過**：等待下載程序成功結束後，核對 `OpenInsert-universal.zip` 完整性、解壓後 App strict codesign、x86_64／arm64、版本 0.2.6／build 8 與最低 macOS 13.0。確認為 ad-hoc 簽章且無本機開發者識別；未執行或安裝該產物。此為 CI artifact，尚未發布 ZIP／DMG Release。
 - **尚未安裝 0.2.6**：本機鎖定，等待使用者解鎖；未操作權限或進行新版 UI／直接插入測試。0.2.5 的失敗與剪貼簿測試限制保留於下節。
 
 | 項目 | 狀態 | 後續需要的證據 |
@@ -15,7 +17,7 @@
 | 0.2.6 安裝、設定與權限保留 | **Pending** | 更新後確認版本、金鑰／同意及麥克風／Accessibility 狀態 |
 | 受影響 Chromium 編輯器直接插入 | **Pending** | 新初始化後取得有效焦點，並確認該次完成文字實際出現在輸入框 |
 | 自動複製與剪貼簿還原 | **Pending** | 沒有並行錄音干擾的固定句與剪貼簿所有權測試 |
-| 0.2.6 CI 與公開 Release | **Pending，未發布** | 提交後執行 CI；實機問題尚待確認，不將建置通過視為發布完成 |
+| 0.2.6 CI 與公開 Release | **CI Passed；未發布 Release** | 實機問題尚待確認，不將建置通過視為發布完成 |
 
 ## 0.2.5 焦點取得與完成結果自動複製（內部版本，未發布）
 
