@@ -3,23 +3,107 @@ on:
   push:
     tags: ['v*']
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   package:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Validate tag version
+        shell: bash
+        run: |
+          version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
+          test "${GITHUB_REF_NAME#v}" = "$version" || { echo 'Tag and Info.plist versions differ'; exit 1; }
       - name: Test
         run: swift test
       - name: Synthetic PCM conversion and buffering
         run: ./scripts/test-audio.sh
       - name: Package universal application
         run: ARCH=universal ./scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: |
+            dist/*.zip
+            dist/*.dmg
+            dist/*SHA256SUMS.txt
+          if-no-files-found: error
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [win-x64, win-arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Offline core, settings, UI and native platform tests
+        if: matrix.runtime == 'win-x64'
+        shell: pwsh
+        run: |
+          dotnet run --project windows/OpenInsert.Core.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Core tests failed.' }
+          dotnet run --project windows/OpenInsert.Windows.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Windows UI/settings tests failed.' }
+          dotnet run --project windows/OpenInsert.Platform.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Native platform tests failed.' }
+      - name: Package self-contained Windows application
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: ./scripts/package-windows.ps1 -Runtime '${{ matrix.runtime }}' -Version $env:RELEASE_TAG -Installer
+      - name: Smoke test extracted x64 archive
+        if: matrix.runtime == 'win-x64'
+        shell: pwsh
+        run: |
+          $archives = @(Get-ChildItem dist/windows/*-windows-x64.zip)
+          if ($archives.Count -ne 1) { throw 'Expected one x64 ZIP.' }
+          $destination = Join-Path $env:RUNNER_TEMP 'openinsert-smoke'
+          Expand-Archive -LiteralPath $archives[0].FullName -DestinationPath $destination
+          $process = Start-Process -FilePath (Join-Path $destination 'win-x64/OpenInsert.exe') -ArgumentList '--smoke-test' -PassThru
+          if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Smoke test timed out.' }
+          if ($process.ExitCode -ne 0) { throw "Smoke test failed: $($process.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.runtime }}
+          path: |
+            dist/windows/*.zip
+            dist/windows/*-setup.exe
+            dist/windows/*-SHA256SUMS.txt
+          if-no-files-found: error
+  draft:
+    # One publisher waits for every platform; matrix jobs never race to create
+    # or upload to an incomplete release. A failed build creates no new draft.
+    needs: [package, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify downloaded assets
+        working-directory: release-assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for manifest in *SHA256SUMS.txt; do sha256sum --check "$manifest"; done
+          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 3
+          test "$(find . -maxdepth 1 -name '*.dmg' | wc -l)" -eq 1
+          test "$(find . -maxdepth 1 -name '*-setup.exe' | wc -l)" -eq 2
       - name: Create draft release for review
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "$GITHUB_REF_NAME"
-          dist/*.zip dist/*.dmg dist/*SHA256SUMS.txt
-          --draft --title "OpenInsert $GITHUB_REF_NAME"
+          release-assets/*.zip release-assets/*.dmg release-assets/*-setup.exe release-assets/*SHA256SUMS.txt
+          --draft --verify-tag --title "OpenInsert $GITHUB_REF_NAME"
           --notes-file docs/RELEASE_NOTES.md

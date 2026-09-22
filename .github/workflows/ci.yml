@@ -22,3 +22,46 @@ jobs:
         with:
           name: OpenInsert-universal
           path: dist/OpenInsert-universal.zip
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [win-x64, win-arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Offline core, settings, UI and native platform tests
+        if: matrix.runtime == 'win-x64'
+        shell: pwsh
+        run: |
+          dotnet run --project windows/OpenInsert.Core.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Core tests failed.' }
+          dotnet run --project windows/OpenInsert.Windows.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Windows UI/settings tests failed.' }
+          dotnet run --project windows/OpenInsert.Platform.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Native platform tests failed.' }
+      - name: Package self-contained Windows application
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -Runtime '${{ matrix.runtime }}' -Installer
+      - name: Smoke test extracted x64 archive
+        if: matrix.runtime == 'win-x64'
+        shell: pwsh
+        run: |
+          $archives = @(Get-ChildItem dist/windows/*-windows-x64.zip)
+          if ($archives.Count -ne 1) { throw 'Expected one x64 ZIP.' }
+          $destination = Join-Path $env:RUNNER_TEMP 'openinsert-smoke'
+          Expand-Archive -LiteralPath $archives[0].FullName -DestinationPath $destination
+          $process = Start-Process -FilePath (Join-Path $destination 'win-x64/OpenInsert.exe') -ArgumentList '--smoke-test' -PassThru
+          if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Smoke test timed out.' }
+          if ($process.ExitCode -ne 0) { throw "Smoke test failed: $($process.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenInsert-${{ matrix.runtime }}
+          path: |
+            dist/windows/*.zip
+            dist/windows/*-setup.exe
+            dist/windows/*-SHA256SUMS.txt
+          if-no-files-found: error

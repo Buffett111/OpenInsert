@@ -9,3 +9,13 @@ dist/
 *.p12
 *.p8
 *.mobileprovision
+**/bin/
+**/obj/
+.dotnet/
+.dotnet-home/
+.nuget/
+.tools/
+.artifacts/
+artifacts/
+*.user
+*.suo

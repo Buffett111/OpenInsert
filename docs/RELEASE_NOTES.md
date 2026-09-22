@@ -1,4 +1,18 @@
-OpenInsert 0.3.0 adds a compact green waveform, switchable English and Traditional Chinese interfaces, and recorded custom shortcuts. These are the changes since the latest public release, 0.2.7; the waveform work previously existed only in the unreleased 0.2.8.
+# Windows port — unreleased source changes
+
+OpenInsert now includes a native Windows desktop application alongside the existing macOS app. The Windows default shortcut is **Ctrl + Space**: hold for at least 350 ms and release to finish, or tap to start and tap again to stop. The interface supports English and Traditional Chinese, writing-language preferences, custom shortcuts, a floating live preview, Google connection checks and a fixed-text insertion test.
+
+Windows packages are self-contained **x64 and ARM64 ZIPs**, with an optional **per-user setup EXE** that does not request administrator rights. The runtime is included. API keys use Windows DPAPI for the current user; microphone permission uses Windows privacy settings. Input delivery checks the original target with UI Automation and requests Ctrl + V, with copied finalized text available when safe automatic insertion cannot be established. Real-time audio and optional cleanup still go directly to Google using your own key and explicit consent.
+
+**Distribution status:** source and packaging are included; this does not modify the previously published macOS-only v0.3.0 assets. The release workflow builds macOS and both Windows architectures, verifies checksums, and creates one draft for review. Initial Windows packages are **unsigned**. A maintainer must choose a new version and complete the [Windows release checklist](https://github.com/Buffett111/OpenInsert/blob/main/docs/RELEASING.md) before publishing. See the [English / 繁體中文 Windows guide](https://github.com/Buffett111/OpenInsert/blob/main/docs/WINDOWS.md).
+
+**Validation scope:** offline core tests and a Windows package smoke command are provided. Hosted workflow success, clean-machine installation, ARM64 runtime behavior and real microphone → Gemini → destination-app dictation must be recorded separately. These source changes do not establish those results. macOS validation below belongs to the historical macOS release and is not Windows evidence. Review finalized text; editor compatibility and the Live protocol's bounded finalization heuristic remain limitations.
+
+Windows 版提供免另外安裝 .NET 的 ZIP 與免管理員權限的安裝檔，預設 **Ctrl + Space**，支援繁中／英文介面。金鑰以 Windows DPAPI 加密，使用前需同意將音訊傳至 Google 並開啟桌面應用程式麥克風權限。既有 v0.3.0 是 macOS 發布版；Windows 下載需待新版本正式發布。初期 Windows 套件尚未簽章，實機、真人錄音及跨 App 相容性請依實際驗證紀錄判斷。
+
+# macOS 0.3.0 — historical release notes
+
+OpenInsert 0.3.0 added a compact green waveform, switchable English and Traditional Chinese interfaces, and recorded custom shortcuts. These were the changes since public release 0.2.7; the waveform work previously existed only in the unreleased 0.2.8.
 
 - **Compact green waveform:** microphone volume appears as dense green bars above the transcript in a narrower, screen-adaptive floating panel. Silence does not produce artificial movement. Reduce Motion is respected; simulated movement is limited to the explicitly labelled, microphone-free preview. The panel still hides immediately after paste dispatch.
 - **English / 繁體中文 interface:** switch languages without restarting. The main window, menu, floating panel, shortcut recorder, status messages and errors update together. The preference persists across launches and stays separate from ASR detection, writing-language preferences and transcript content. Existing users retain Traditional Chinese by default. Translation tables use an extensible resource structure with English fallback; see the [localization guide](https://github.com/Buffett111/OpenInsert/blob/v0.3.0/docs/LOCALIZATION.md).

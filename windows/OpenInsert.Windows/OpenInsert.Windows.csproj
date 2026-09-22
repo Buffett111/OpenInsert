@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>OpenInsert</AssemblyName>
+    <RootNamespace>OpenInsert.Windows</RootNamespace>
+    <Version>0.3.0</Version>
+    <WindowsBuild>2</WindowsBuild>
+    <FileVersion>0.3.0.2</FileVersion>
+    <InformationalVersion>0.3.0-windows.2</InformationalVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationDefaultFont>Segoe UI, 10pt</ApplicationDefaultFont>
+    <Description>OpenInsert dictation for Windows</Description>
+    <Copyright>OpenInsert contributors. MIT License.</Copyright>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../OpenInsert.Core/OpenInsert.Core.csproj" />
+  </ItemGroup>
+</Project>

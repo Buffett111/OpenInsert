@@ -1,8 +1,10 @@
 # OpenInsert
 
-**Hold Option + Space. Speak. Put the words where your cursor is.**
+**Hold a shortcut. Speak. Put the words where your cursor is.**
 
-An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Built for **multilingual dictation and code-switching**, with editable writing-language preferences. Native Swift, no third-party package dependencies, no OpenInsert account, no screen capture.
+An MIT-licensed dictation app for **macOS and Windows**, using your own Gemini API key. Built for **multilingual dictation and code-switching**, with editable writing-language preferences. Native Swift on macOS; a native .NET desktop app on Windows. No OpenInsert account, developer backend, or screen capture.
+
+**Windows port:** the repository now includes Windows source, self-contained ZIP packaging, a per-user installer, and CI/release jobs. These changes do not add Windows downloads to the existing macOS-only v0.3.0 release. Download review builds from a successful [Build and test workflow](https://github.com/Buffett111/OpenInsert/actions/workflows/ci.yml) (`OpenInsert-win-x64` / `OpenInsert-win-arm64` artifacts), build locally below, or use Windows assets when a maintainer publishes a new release. See the [Windows guide / Windows 安裝指南](docs/WINDOWS.md) for setup and validation limits.
 
 **Early release 0.3.0:** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
 
@@ -10,7 +12,15 @@ Version 0.3.0 adds switchable English/Traditional Chinese interfaces and recorde
 
 [繁體中文說明](#繁體中文快速開始) · [Detailed survey](docs/SURVEY.md) · [Dup model evidence](docs/DUP_MODELS.md) · [Architecture](docs/ARCHITECTURE.md) · [Privacy](docs/PRIVACY.md)
 
-## What it does
+## Windows quick start / Windows 快速開始
+
+On Windows, use **Ctrl + Space**: hold at least **350 ms** and release to finish, or tap to start and tap again to stop. Choose the `windows-x64` package for Intel/AMD PCs or `windows-arm64` for ARM PCs. A `-setup.exe` installs for your account without administrator rights; a `.zip` can be extracted and run with `OpenInsert.exe`. Both include the .NET runtime. Use a supported Windows 11 installation; see the guide for Windows 10 limitations.
+
+Windows 版預設 **Ctrl + Space**：按住至少 **350 毫秒**、放開完成，或短按開始、再按一次結束。Intel／AMD 電腦選 `windows-x64`，ARM 電腦選 `windows-arm64`。安裝檔不需要系統管理員權限；ZIP 必須完整解壓後執行 `OpenInsert.exe`，不必另外安裝 .NET。先儲存自己的 Gemini API key、同意將音訊傳送給 Google，並允許 Windows 桌面應用程式使用麥克風。完整步驟、編譯方式與已知限制請看 [Windows 安裝指南](docs/WINDOWS.md)。
+
+The Windows key is encrypted with Windows DPAPI for your account. Text delivery checks the original input target through UI Automation and requests **Ctrl + V**; when a safe automatic target cannot be verified, finalized text can be copied for manual paste. Windows compatibility and real Gemini/microphone verification are tracked separately from the macOS results below. Initial Windows packages are unsigned.
+
+## macOS behavior
 
 - Custom shortcuts can be recorded in Preferences. Press a combination, review it, then save; conflicts are reported before the saved setting changes. General keys require Command, Option or Control; F1–F20 may be used alone. Escape cancels recording.
 - **Option + Space** by default: hold for at least 0.35 seconds and release to finish, or tap once to start and again to stop. Duration uses the original keyboard event timestamps; conflicting shortcut registrations report an error.
@@ -27,7 +37,7 @@ Version 0.3.0 adds switchable English/Traditional Chinese interfaces and recorde
 
 There is no guarantee that every editor accepts automatic insertion. Secure fields are excluded. A missing Accessibility selection range limits cursor-change detection, and a paste request has no OS delivery receipt. A user confirmed the 0.2.4 fixed paste test in the affected ChatGPT/Codex desktop input, but the internal, unreleased 0.2.5 still failed to obtain that editor's focused element during later dictation. Version 0.2.6 revises accessibility initialization for apps exposing the supported capability and a narrowly identified Chromium app class. The user has now confirmed a successful spoken dictation directly into the affected ChatGPT/Codex input on 0.2.6; repeated restarts and compatibility with other editors remain unverified. It reads no input content. Known terminal apps reject automatic multiline/tab insertion because terminals can execute pasted newlines; embedded terminals and unknown apps need separate testing.
 
-## Download and setup
+## macOS download and setup
 
 Get published `.dmg` or `.zip` builds from [Releases](https://github.com/Buffett111/OpenInsert/releases). [Version 0.3.0](https://github.com/Buffett111/OpenInsert/releases/tag/v0.3.0) includes interface language switching, custom shortcuts and the compact waveform, alongside the clipboard and input compatibility fixes. Universal builds contain Apple Silicon and Intel executables. macOS 13 or newer is required.
 
@@ -60,6 +70,25 @@ Default ASR model: `gemini-3.5-transcribe-live`. Default cleanup model: `gemini-
 
 ## Build from source
 
+### Windows
+
+Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), then run these commands in PowerShell from the repository root:
+
+```powershell
+dotnet run --project windows/OpenInsert.Core.Tests -c Release
+dotnet run --project windows/OpenInsert.Windows.Tests -c Release
+dotnet run --project windows/OpenInsert.Platform.Tests -c Release
+./scripts/package-windows.ps1 -Runtime win-x64
+# ARM64 package (cross-compilation does not verify operation on ARM hardware):
+./scripts/package-windows.ps1 -Runtime win-arm64
+# Also make a per-user setup EXE after installing Inno Setup 6:
+./scripts/package-windows.ps1 -Runtime win-x64 -Installer
+```
+
+ZIPs, optional installers and SHA-256 manifests are written to `dist/windows`. The executable for a local x64 build is `dist/windows/publish/win-x64/OpenInsert.exe`. See [Windows build and troubleshooting](docs/WINDOWS.md).
+
+### macOS
+
 Use macOS with Swift 5.9 or newer and a compatible SDK. A current Xcode installation is recommended for XCTest.
 
 ```sh
@@ -87,11 +116,11 @@ Build scripts use project-local caches. In an environment that forbids nested `s
 
 ## Distribution
 
-[CI](.github/workflows/ci.yml) runs tests and builds a universal app. Pushing a `v*` tag runs the [release workflow](.github/workflows/release.yml), which prepares a **draft** release for maintainer review. See [release checklist](docs/RELEASING.md) for signing, notarization, and compatibility checks. It never bundles an API key.
+[CI](.github/workflows/ci.yml) runs macOS tests and a universal build alongside Windows offline core, UI/settings and native platform tests, an x64 package smoke test, and x64/ARM64 packaging. Pushing a new `v*` tag whose version matches both projects runs the [release workflow](.github/workflows/release.yml). It waits for all platforms, verifies downloaded SHA-256 manifests, and creates one **draft** release with macOS ZIP/DMG and Windows ZIP/setup EXE assets. See the [release checklist](docs/RELEASING.md) for signing and compatibility checks. It never bundles an API key.
 
 ## 繁體中文快速開始
 
-OpenInsert 0.3.0 是支援多語言混用（code-switching）的開源 macOS 語音輸入工具，目前提供 early release。預設 **Option + Space**：按住至少 0.35 秒說話、放開完成；也可短按開始、再按一次結束。說話時透過你自己的 Gemini API key，將音訊直接串流到 **Gemini 3.5 Transcribe Live**。選擇輕度整理時，確定的逐字稿再交給 **Gemini 3.5 Flash Lite**；逐字模式跳過這一步。
+OpenInsert 是支援多語言混用（code-switching）的開源語音輸入工具。已發布的 0.3.0 是 macOS early release；本專案現在也包含 Windows 移植原始碼與打包流程，既有 0.3.0 發布頁尚未因此增加 Windows 檔案。Windows 使用方式請看 [Windows 安裝指南](docs/WINDOWS.md)。以下是 macOS 版說明：預設 **Option + Space**，按住至少 0.35 秒說話、放開完成；也可短按開始、再按一次結束。說話時透過你自己的 Gemini API key，將音訊直接串流到 **Gemini 3.5 Transcribe Live**。選擇輕度整理時，確定的逐字稿再交給 **Gemini 3.5 Flash Lite**；逐字模式跳過這一步。
 
 0.3.0 提供繁體中文／English 介面切換，與「文字語言偏好」分開；新增翻譯可參閱[本地化指南](docs/LOCALIZATION.md)。「辨識偏好」可直接按鍵錄製自訂快捷鍵，預設仍為 Option + Space；只有成功註冊才儲存，取消不變更原設定。
 
@@ -117,6 +146,6 @@ OpenInsert 0.3.0 是支援多語言混用（code-switching）的開源 macOS 語
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Useful next steps include a measured cross-app insertion matrix, configurable clipboard restore timing, additional interface translations, a local transcription provider, and a notarized distribution channel. Windows/Linux are not implemented.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Useful next steps include a measured cross-app insertion matrix on both platforms, configurable clipboard restore timing, additional interface translations, a local transcription provider, and signed distribution channels. Linux is not implemented.
 
 MIT License. Independently implemented; not affiliated with Dup or the surveyed projects.
