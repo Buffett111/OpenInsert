@@ -16,5 +16,6 @@ dist/
 .nuget/
 .tools/
 .artifacts/
+artifacts/
 *.user
 *.suo

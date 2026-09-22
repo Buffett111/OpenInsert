@@ -22,6 +22,16 @@ internal static class Program
             Forms.Application.Run(new TargetForm(args[1]));
             return 0;
         }
+        if (args.FirstOrDefault() == "--value-target")
+        {
+            ValueOnlyTarget.Run(args[1]);
+            return 0;
+        }
+        if (args.FirstOrDefault() == "--boundary-target")
+        {
+            BoundaryMismatchTarget.Run(args[1]);
+            return 0;
+        }
         try
         {
             Equal("軟體開發，臺灣", Orthography.Convert("软体开发，台湾", "zh-Hant"), "traditional Chinese conversion");
@@ -37,6 +47,7 @@ internal static class Program
             Check(GlobalShortcut.ClassifyRelease(350, 365)?.TotalMilliseconds == 350, "hold release interval");
             Check(GlobalShortcut.ClassifyRelease(342, 358) == null, "uncertain boundary cancels");
             Check(GlobalShortcut.ClassifyRelease(80, 1000) == null, "stalled tap cannot become hold");
+            Check(TextInserter.SelectionMatches(null, null), "unsupported selection is stable");
             using (var first = new GlobalShortcut())
             using (var second = new GlobalShortcut())
             {
@@ -130,7 +141,7 @@ internal static class Program
                             try
                             {
                                 var method = typeof(TextInserter).GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic)!;
-                                method.Invoke(null, methodName == "VerifyEditable" ? [focused, helper.Id] : [focused]);
+                                method.Invoke(null, methodName == "VerifyEditable" ? [focused, helper.Id, null] : [focused, null]);
                             }
                             catch (Exception diagnostic) { Console.WriteLine(methodName + ": " + diagnostic.InnerException?.Message); }
                 }
@@ -147,6 +158,8 @@ internal static class Program
                 Check(!result.Pasted && result.Copied, "selection change falls back to persistent copy");
                 Equal("selection changed", Forms.Clipboard.GetText(), "safe fallback text retained");
                 Equal("seed pasted ✓", pattern.DocumentRange.GetText(-1).TrimEnd('\r', '\n'), "selection change did not insert");
+                await ValueOnlyPaste();
+                await BoundaryMismatchPaste();
                 using var latest = clipboard.Capture();
                 owned = clipboard.WriteText("OpenInsert final fixture", latest);
                 await HotkeyWhileUiBusy();
@@ -159,6 +172,106 @@ internal static class Program
             // Reclaim only our latest known sequence. Any unrelated concurrent user copy wins.
             clipboard.RestoreIfOwned(original, owned);
         }
+    }
+
+    private static async Task BoundaryMismatchPaste()
+    {
+        var title = "OpenInsert boundary target " + Guid.NewGuid().ToString("N");
+        using var helper = Process.Start(new ProcessStartInfo(Environment.ProcessPath!)
+        { UseShellExecute = false, ArgumentList = { "--boundary-target", title } })!;
+        try
+        {
+            nint window = 0;
+            for (var retry = 0; retry < 50 && window == 0; retry++)
+            {
+                await Task.Delay(100);
+                window = FindWindow(null, title);
+            }
+            Check(window != 0, "boundary-mismatch helper window exists");
+            SetForegroundWindow(window);
+            var editor = AutomationElement.FromHandle(window).FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "BoundaryEditor"))!;
+            editor.SetFocus();
+            await Task.Delay(200);
+            var pattern = (TextPattern)editor.GetCurrentPattern(TextPattern.Pattern);
+            var cursor = pattern.GetSelection()[0].Clone();
+            cursor.MoveEndpointByUnit(System.Windows.Automation.Text.TextPatternRangeEndpoint.Start,
+                System.Windows.Automation.Text.TextUnit.Character, -1_000_000);
+            Check(cursor.CompareEndpoints(System.Windows.Automation.Text.TextPatternRangeEndpoint.Start,
+                pattern.DocumentRange, System.Windows.Automation.Text.TextPatternRangeEndpoint.Start) != 0,
+                "fixture reproduces non-normalizing Chromium document boundary");
+            using var inserter = new TextInserter();
+            var target = inserter.CaptureTarget();
+            Check(target?.Selection?.Length == 1, "empty boundary-mismatch editor retains selection range");
+            Check(TextInserter.SelectionMatches(target!.Selection, target.Selection!.Select(range => range.Clone()).ToArray()), "cloned selection endpoints match");
+            Check(!TextInserter.SelectionMatches(null, target.Selection), "newly available selection rejects stale target");
+            Check(!TextInserter.SelectionMatches(target.Selection, null), "lost selection support rejects stale target");
+            var result = await inserter.DeliverAsync("boundary paste ✓", target, true, CancellationToken.None);
+            Check(result.Pasted, "paste dispatched with inconsistent document boundaries");
+            var value = (ValuePattern)editor.GetCurrentPattern(ValuePattern.Pattern);
+            Equal("boundary paste ✓", value.Current.Value, "actual boundary-mismatch editor received paste");
+
+            target = inserter.CaptureTarget();
+            SendMessage(window, 0x8101, 0, 0);
+            await Task.Delay(100);
+            result = await inserter.DeliverAsync("must not paste after caret moved", target, true, CancellationToken.None);
+            Check(!result.Pasted && result.Copied, "direct range comparison rejects changed caret");
+            Check(inserter.LastTargetDiagnostic.Contains("validate: selection-changed"), "changed-caret rejection diagnostic");
+            Equal("boundary paste ✓", value.Current.Value, "changed-caret fallback did not alter editor");
+        }
+        finally { if (!helper.HasExited) { helper.CloseMainWindow(); if (!helper.WaitForExit(3000)) helper.Kill(); } }
+    }
+
+    private static async Task ValueOnlyPaste()
+    {
+        var title = "OpenInsert value-only target " + Guid.NewGuid().ToString("N");
+        using var helper = Process.Start(new ProcessStartInfo(Environment.ProcessPath!)
+        { UseShellExecute = false, ArgumentList = { "--value-target", title } })!;
+        try
+        {
+            nint window = 0;
+            for (var retry = 0; retry < 50 && window == 0; retry++)
+            {
+                await Task.Delay(100);
+                window = FindWindow(null, title);
+            }
+            Check(window != 0, "value-only helper window exists");
+            SetForegroundWindow(window);
+            var editor = AutomationElement.FromHandle(window).FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ValueOnlyEditor"))!;
+            editor.SetFocus();
+            await Task.Delay(200);
+            Check(!editor.TryGetCurrentPattern(TextPattern.Pattern, out _), "fixture has no TextPattern");
+            var value = (ValuePattern)editor.GetCurrentPattern(ValuePattern.Pattern);
+            Check(!value.Current.IsReadOnly, "fixture exposes writable ValuePattern");
+            using var inserter = new TextInserter();
+            var target = inserter.CaptureTarget();
+            Check(target != null && target.Selection is null, "writable editor captured without selection metadata");
+            Check(inserter.LastTargetDiagnostic.Contains("capture: captured")
+                && inserter.LastTargetDiagnostic.Contains("value=writable; text=unsupported; selection=unsupported")
+                && !inserter.LastTargetDiagnostic.Contains("seed"), "capture diagnostic reports capabilities without fixture content");
+            var result = await inserter.DeliverAsync(" pasted ✓", target, true, CancellationToken.None);
+            Check(result.Pasted, "paste into value-only editor dispatched");
+            Equal("seed pasted ✓", value.Current.Value, "actual value-only editor received paste");
+
+            target = inserter.CaptureTarget();
+            SendMessage(window, 0x8101, 0, 0);
+            await Task.Delay(100);
+            result = await inserter.DeliverAsync("must not paste elsewhere", target, true, CancellationToken.None);
+            Check(!result.Pasted && result.Copied, "another editor in same window rejects original target");
+            Check(inserter.LastTargetDiagnostic.Contains("validate: focused-element-changed"), "validation diagnostic explains changed focus");
+            Equal("seed pasted ✓", value.Current.Value, "changed-focus fallback did not alter original editor");
+
+            SendMessage(window, 0x8102, 0, 0);
+            await Task.Delay(100);
+            Check(inserter.CaptureTarget() is null, "read-only value-only editor rejected");
+            Check(inserter.LastTargetDiagnostic.Contains("capture: value-read-only"), "read-only rejection diagnostic");
+            SendMessage(window, 0x8103, 0, 0);
+            await Task.Delay(100);
+            Check(inserter.CaptureTarget() is null, "password editor rejected");
+            Check(inserter.LastTargetDiagnostic.Contains("capture: password-field"), "password rejection diagnostic");
+        }
+        finally { if (!helper.HasExited) { helper.CloseMainWindow(); if (!helper.WaitForExit(3000)) helper.Kill(); } }
     }
 
     private static async Task HotkeyWhileUiBusy()

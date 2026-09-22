@@ -9,6 +9,7 @@ internal enum DictationState { Idle, Preparing, Recording, Transcribing, Polishi
 /// <summary>Serializes one dictation on the UI STA. No transcript or microphone data is persisted.</summary>
 internal sealed class DictationController : IDisposable
 {
+    internal const int MaximumRecordingSeconds = 119;
     private readonly SynchronizationContext context;
     private readonly TextInserter inserter = new();
     private CancellationTokenSource? operation;
@@ -25,6 +26,7 @@ internal sealed class DictationController : IDisposable
     public string Status { get; private set; } = "";
     public bool LastStatusIsError { get; private set; }
     public bool Pasted { get; private set; }
+    public string TargetDiagnostic => inserter.LastTargetDiagnostic;
     public event Action? Changed;
     public event Action<float>? LevelChanged;
     public event Action? PasteDispatched;
@@ -116,7 +118,8 @@ internal sealed class DictationController : IDisposable
             {
                 context.Post(_ =>
                 {
-                    if (operation != owner || ct.IsCancellationRequested || disposed) return;
+                    if (operation != owner || ct.IsCancellationRequested || disposed ||
+                        State is not (DictationState.Recording or DictationState.Transcribing)) return;
                     Preview = Orthography.Convert(partial, settings.WritingLanguage);
                     Changed?.Invoke();
                 }, null);
@@ -125,7 +128,7 @@ internal sealed class DictationController : IDisposable
             ct.ThrowIfCancellationRequested();
             if (stop!.Task.IsCompleted)
             {
-                SetStatus(T("連線完成前已結束操作。請重試，等候「正在聆聽」後再說話。", "Recording ended before the connection was ready. Try again and wait for Listening before speaking."));
+                SetStatus(T("連線完成前已結束操作。請重試，等候綠色聲波出現後再說話。", "Recording ended before the connection was ready. Try again and wait for the green waveform before speaking."));
                 return;
             }
             using var recorder = new MicrophoneRecorder();
@@ -136,7 +139,17 @@ internal sealed class DictationController : IDisposable
             }, null);
             recorder.Start();
             State = DictationState.Recording;
-            SetStatus(T("正在聆聽…", "Listening…"));
+            var recordingClock = Stopwatch.StartNew();
+            using var recordingTimer = new System.Windows.Forms.Timer { Interval = 250 };
+            void UpdateRecordingStatus()
+            {
+                if (operation != owner || State != DictationState.Recording || ct.IsCancellationRequested) return;
+                string elapsed = recordingClock.Elapsed.ToString(@"mm\:ss");
+                SetStatus(T($"錄音 {elapsed} · 最長約 2 分鐘；完成後才進行文字整理。", $"Recording {elapsed} · Up to 2 minutes; text cleanup runs after recording."));
+            }
+            recordingTimer.Tick += (_, _) => UpdateRecordingStatus();
+            UpdateRecordingStatus();
+            recordingTimer.Start();
             async Task PumpAsync()
             {
                 await foreach (var chunk in recorder.Audio.ReadAllAsync(ct).ConfigureAwait(false))
@@ -146,7 +159,7 @@ internal sealed class DictationController : IDisposable
             try
             {
                 // End before the 120-second wire limit to leave room for native capture tails.
-                var limit = Task.Delay(TimeSpan.FromSeconds(119), ct);
+                var limit = Task.Delay(TimeSpan.FromSeconds(MaximumRecordingSeconds), ct);
                 var completed = await Task.WhenAny(stop!.Task, pump, limit);
                 ct.ThrowIfCancellationRequested();
                 if (completed == pump)
@@ -155,6 +168,7 @@ internal sealed class DictationController : IDisposable
                     throw new InvalidOperationException(T("麥克風已中斷，請重試。", "Microphone capture ended unexpectedly. Try again."));
                 }
                 recorder.Stop();
+                recordingTimer.Stop();
                 State = DictationState.Transcribing;
                 SetStatus(T("正在完成辨識…", "Finalizing transcription…"));
                 try { await pump.WaitAsync(TimeSpan.FromSeconds(10), ct); }
@@ -167,6 +181,7 @@ internal sealed class DictationController : IDisposable
             }
             finally
             {
+                recordingTimer.Stop();
                 recorder.Stop();
                 // Observe sender failures even if capture was cancelled first.
                 if (!pump.IsCompleted) owner.Cancel();
@@ -176,13 +191,13 @@ internal sealed class DictationController : IDisposable
             var text = Orthography.Convert(await session.FinishAsync(ct), settings.WritingLanguage);
             ct.ThrowIfCancellationRequested();
             LastText = text;
-            Preview = "";
+            Preview = text;
             string fallback = "";
             var asrSeconds = timer.Elapsed.TotalSeconds;
             if (settings.Polish)
             {
                 State = DictationState.Polishing;
-                SetStatus(T("正在整理文字（最多 8 秒，可略過）…", "Cleaning up text (up to 8 seconds; you can skip)…"));
+                SetStatus(T("錄音已結束，正在整理文字（可略過）…", "Recording finished. Cleaning up text (you can skip)…"));
                 using var cleanupOwner = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 cleanupCancellation = cleanupOwner;
                 using var cleanup = new GeminiCleanupClient();

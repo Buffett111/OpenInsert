@@ -18,6 +18,7 @@ internal sealed class MainForm : Form
     private CheckBox consentBox = null!, polishBox = null!, restoreBox = null!;
     private ComboBox interfaceBox = null!, languageBox = null!;
     private Label statusLabel = null!, keyLabel = null!, shortcutLabel = null!;
+    private TextBox targetDiagnosticBox = null!;
     private Button stopButton = null!, cancelButton = null!, skipButton = null!, saveButton = null!, copyButton = null!;
     private TabControl tabs = null!;
     private uint pendingModifiers, pendingKey;
@@ -33,7 +34,7 @@ internal sealed class MainForm : Form
     {
         this.settings = settings;
         this.smokeTest = smokeTest;
-        Text = "OpenInsert";
+        Text = "OpenInsert — Windows " + Application.ProductVersion.Split('+')[0];
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
         MinimumSize = new Size(650, 680);
@@ -203,6 +204,12 @@ internal sealed class MainForm : Form
         copyButton.Enabled = false;
         AddRow(panel, Buttons(copyButton, MakeButton(T("清除結果", "Clear result"), () => controller?.ClearResult())));
         AddRow(panel, TextLabel(T("無法驗證原輸入位置時，完成文字會自動複製，請自行貼上。切換輸入欄位、管理員視窗或部分編輯器可能需要此方式。", "If the original input target cannot be verified, finalized text is copied for manual paste. Changed fields, administrator windows and some editors may require this.")));
+        AddRow(panel, TextLabel(T("插入檢查結果（不含輸入框文字）", "Insertion diagnostics (no input contents)"), true));
+        targetDiagnosticBox = Input();
+        targetDiagnosticBox.ReadOnly = true;
+        targetDiagnosticBox.Multiline = true;
+        targetDiagnosticBox.ScrollBars = ScrollBars.Vertical;
+        AddRow(panel, targetDiagnosticBox, 82);
         AddRow(panel, TextLabel(T("診斷", "Diagnostics"), true));
         var preview = MakeButton(T("預覽浮動字幕", "Preview captions"), () => overlay.Present(T("字幕預覽（不錄音、不連線）", "Caption preview (no microphone or network)"), "你好，Windows! Speak naturally, in any language.", false, dismissAfterMs: 5_000));
         var connection = MakeButton(T("檢查 Gemini 連線（不錄音）", "Check Gemini connection (no mic)"), () => controller?.CheckConnection());
@@ -284,6 +291,7 @@ internal sealed class MainForm : Form
         skipButton.Enabled = controller.State == DictationState.Polishing;
         copyButton.Enabled = !busy && controller.LastText.Length > 0;
         resultBox.Text = controller.LastText;
+        targetDiagnosticBox.Text = controller.TargetDiagnostic;
         ShowStatus(controller.Status, controller.LastStatusIsError);
         if (busy && !controller.Pasted)
             overlay.Present(controller.Status, controller.Preview, controller.State == DictationState.Recording, controller.LastStatusIsError);

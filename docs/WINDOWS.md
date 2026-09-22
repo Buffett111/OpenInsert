@@ -31,10 +31,14 @@ Get-FileHash .\OpenInsert-<version>-windows-x64.zip -Algorithm SHA256
 2. Save your own [Gemini API key](https://aistudio.google.com/apikey) in the connection settings. Paste the whole key. The app encrypts it with Windows **DPAPI for the current user**; it is not written as plain text in settings or included in packages.
 3. Read and enable Google cloud consent. Recording streams microphone audio and vocabulary directly to Google; optional cleanup sends finalized text and writing preferences. API charges and Google's terms apply. Cancellation cannot recall data already sent.
 4. In **Settings → Privacy & security → Microphone**, allow microphone access and **Let desktop apps access your microphone**. Select the intended default input device in Windows Sound settings. Microphone failure can also mean another program holds the device or the device is unavailable.
-5. Focus a disposable text document. Hold **Ctrl + Space** for at least **350 ms**, speak after the listening status appears, and release to finish. Alternatively, tap once to start and again to stop. Keep the original input location focused while processing. Some Chinese input methods reserve Ctrl + Space. If it conflicts, choose Ctrl + Alt + Space or another custom shortcut.
+5. Focus a disposable text document. Hold **Ctrl + Space** for at least **350 ms**, speak after the green waveform appears, and release to finish. Alternatively, tap once to start and again to stop. Keep the original input location focused while processing. Some Chinese input methods reserve Ctrl + Space. If it conflicts, choose Ctrl + Alt + Space or another custom shortcut.
 6. Use the fixed-text insertion test to check your destination editor without microphone capture or a Google request. After its five-second countdown starts, switch to that editor. A connection check contacts Google without opening the microphone; success establishes only that Google accepted the connection and model settings at that time.
 
 Close a conflicting shortcut owner or record another shortcut if registration fails. A shortcut conflict must be resolved before it can trigger dictation. Tap/hold operation depends on physical key release; keyboard layouts, AltGr combinations, remote desktop sessions and accessibility tools need separate testing.
+
+**Recording and cleanup have separate limits.** Recording lasts up to about **two minutes**. The eight-second deadline applies only to optional text cleanup after recording has finished; it never limits how long you can speak. The settings window shows recording elapsed time. While recording, captions show the waveform and the latest streaming transcript, growing to four lines; speculative text is still never inserted automatically.
+
+Windows revision 2 (`0.3.0-windows.2`, file version `0.3.0.2`) fixes Chromium editors whose selection ranges cannot be converted to offsets from the document start, including the tested ChatGPT/Codex composer. Selection ranges are now compared directly. It also supports writable input fields without selection metadata. The exact original window, process, field identity and focus must still match. When selection ranges are available they are also checked; when unavailable, movement within the same field cannot be detected. Providers may adjust retained ranges after text edits, so this is not a content-change detector. Results & tests includes a content-free insertion diagnostic to distinguish missing focus, unsupported accessibility, read-only/password fields and changed targets.
 
 ## Text delivery, privacy and limitations
 
@@ -87,7 +91,7 @@ CI uses the .NET 10 SDK and the Inno Setup installation documented in the [GitHu
 
 Windows validation is separate from [the historical macOS results](VALIDATION.md). CI definitions describe checks to run; adding them does not prove a hosted run has passed. Offline core tests and `--smoke-test` do not establish a successful real microphone → Google → destination-app session. They cannot validate Google's current model access or SmartScreen behavior on a freshly downloaded unsigned artifact.
 
-Local checks on **2026-09-22** used Windows x64 **10.0.26200**, .NET SDK **10.0.203**, runtime **10.0.7**, and Inno Setup **6.7.3**:
+Initial port checks on **2026-09-22** used Windows x64 **10.0.26200**, .NET SDK **10.0.203**, runtime **10.0.7**, and Inno Setup **6.7.3**:
 
 | Check | Result and scope |
 | --- | --- |
@@ -99,7 +103,9 @@ Local checks on **2026-09-22** used Windows x64 **10.0.26200**, .NET SDK **10.0.
 | x64 installer | Silent per-user installation to an isolated workspace directory, installed-app smoke check, and uninstall each exited 0. No pre-existing OpenInsert install was present; temporary uninstall registration and test application were removed. `/NOICONS` was used. No saved user settings/key were deleted or loaded. This does not test clean-machine SmartScreen, Start menu UI, upgrade, or reinstall persistence. |
 | Workflows | Actionlint 1.7.12 passed both workflows' syntax/schema/expression checks. [Hosted CI run 35687189550](https://github.com/Buffett111/OpenInsert/actions/runs/35687189550) passed the unchanged macOS test/build job and both Windows package jobs for commit `399065e`; that run is evidence for that commit, not subsequent refinements. |
 
-Windows packages are unsigned. No default microphone was available on the local host, so actual microphone capture and real Google transcription/cleanup remain unverified. Native editor fixtures establish only those controlled cases, not compatibility with every app or the ChatGPT/Codex input. A clean computer without .NET installed, ARM64 hardware, microphone permission behavior and genuinely downloaded-install behavior still need testing.
+Revision 2 validation on the same host adds 37 passing core checks (including 30 seconds of PCM streaming and multiple live transcript revisions), 62 UI/settings checks with caption rendering at 96/120/144/192 DPI, and 53 native desktop checks including value-only and inconsistent-document-boundary editor fixtures. The originally installed application was upgraded in place with the saved key and consent retained. The fixed-text test reproduced a `selection-range-too-large` failure in the actual ChatGPT/Codex composer before the range fix; after it, the exact Chinese/English test sentence appeared automatically in that composer. The test insertion was undone without sending a message. This verifies the fixed-text delivery path, not a full voice session.
+
+Windows packages are unsigned. No default microphone was available during the initial port checks; real microphone → Google transcription/cleanup has not been independently verified in this revision. Editor fixtures and the tested ChatGPT/Codex composer do not establish compatibility with every app. A clean computer without .NET installed, ARM64 hardware, microphone permission behavior and genuinely downloaded-install behavior still need testing.
 
 Before publishing, record results for: fresh installation and uninstall/reinstall; x64 and ARM64 hardware; physical hold/tap and custom shortcuts; microphone permission denial and unplugging; mixed-language voice with a real key; ASR finalization and cleanup; cancellation; focus movement and password fields; clipboard restore and interference; and insertion into Notepad, browser textareas, Word and the intended ChatGPT/Codex inputs. Leave any untested row marked pending. A cross-compiled ARM64 package is not an ARM64 runtime test.
 
@@ -112,8 +118,12 @@ Before publishing, record results for: fresh installation and uninstall/reinstal
 1. 下載對應的 `-setup.exe` 並安裝，或將 ZIP **完整解壓縮**後執行資料夾中的 `OpenInsert.exe`。不要只複製 EXE。兩種版本都已包含 .NET runtime，不必另外安裝。安裝版位於 `%LOCALAPPDATA%\Programs\OpenInsert`。
 2. 從通知區域開啟設定，可選繁體中文／English 介面。儲存自己的 Gemini API key，並閱讀、勾選 Google 雲端使用同意。金鑰以 Windows DPAPI 加密，綁定目前 Windows 帳戶；不會寫入明文設定或打包進程式。
 3. 在「設定 → 隱私權與安全性 → 麥克風」允許麥克風存取，以及「讓桌面應用程式存取您的麥克風」。輸入裝置以 Windows 音效設定中的預設裝置為準。
-4. 將游標放到測試文字文件，按住 **Ctrl + Space 至少 350 毫秒**，顯示正在聆聽後說話，放開結束；也可短按開始、再按一次結束。處理期間保持原輸入位置的焦點。部分中文輸入法會佔用 Ctrl + Space；若有衝突，可改為 Ctrl + Alt + Space 或其他自訂組合。
+4. 將游標放到測試文字文件，按住 **Ctrl + Space 至少 350 毫秒**，綠色聲波出現後說話，放開結束；也可短按開始、再按一次結束。處理期間保持原輸入位置的焦點。部分中文輸入法會佔用 Ctrl + Space；若有衝突，可改為 Ctrl + Alt + Space 或其他自訂組合。
 5. 先用固定文字插入測試驗證編輯器；按下後有五秒切換到空白測試文件，不用麥克風或 API。連線測試會聯絡 Google，但不錄音；成功只代表當時連線與模型設定獲接受。
+
+**錄音最長約兩分鐘，不是八秒。** 八秒是錄音結束後的可選文字整理期限，與錄音時長分開。Windows 修正版 `0.3.0-windows.2` 會顯示錄音經過時間；錄音浮動字幕只呈現聲波與最新串流文字，不再讓「正在聆聽」佔據字幕區。長句最多顯示四行，持續跟隨最新內容。
+
+修正版改為直接比較游標選取範圍，修正部分 Chromium 編輯器無法換算文件起點距離、因而只複製不貼上的問題；已在實際 ChatGPT/Codex 輸入框以中英固定句驗證自動貼上。也允許已證明可編輯、但未提供選取資訊的輸入框使用自動貼上，仍核對原視窗、程序、欄位身分和焦點。缺少選取資訊時，無法偵測同一欄位內的游標移動；編輯器也可能隨文字修改調整保留的範圍，這不等同於偵測內容變更。若仍改為複製，可在「結果與測試」查看不含輸入文字的插入診斷。
 
 Windows 版透過 UI Automation 檢查輸入位置，再請求標準 **Ctrl + V**。無法驗證安全目標時，完成的文字可複製後手動貼上；不是所有 App、系統管理員視窗、終端機或遠端桌面都支援自動插入。不要以管理員權限執行來繞過限制。一般貼上只在剪貼簿仍屬於本次操作時還原；自動複製的備用結果會留在剪貼簿，可能被 Windows 剪貼簿歷程或同步功能保留。
 

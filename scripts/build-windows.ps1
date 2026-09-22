@@ -19,6 +19,9 @@ if ($Version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[
     throw 'Version must be major.minor.patch, optionally followed by a prerelease suffix (or prefixed with v).'
 }
 $numericVersion = ($Version -split '-', 2)[0]
+$windowsBuildNode = $projectXml.SelectSingleNode('/Project/PropertyGroup/WindowsBuild')
+$windowsBuild = if ($null -eq $windowsBuildNode) { '0' } else { $windowsBuildNode.InnerText.Trim() }
+if ($windowsBuild -notmatch '^\d{1,5}$' -or [int]$windowsBuild -gt 65535) { throw 'WindowsBuild must be an integer from 0 to 65535.' }
 if (@($numericVersion.Split('.') | Where-Object { [long]$_ -gt 65534 }).Count -gt 0) {
     throw 'Version components must be at most 65534 for a .NET assembly version.'
 }
@@ -55,14 +58,14 @@ try {
     # so recipients do not need an SDK or a separately installed .NET runtime.
     & dotnet publish $project --configuration $Configuration --runtime $Runtime --self-contained true --output $publishDirectory `
         '-p:PublishSingleFile=false' '-p:PublishTrimmed=false' '-p:DebugType=None' '-p:DebugSymbols=false' `
-        "-p:Version=$Version" "-p:AssemblyVersion=$numericVersion.0" "-p:FileVersion=$numericVersion.0"
+        "-p:Version=$Version" "-p:AssemblyVersion=$numericVersion.0" "-p:FileVersion=$numericVersion.$windowsBuild"
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)." }
     foreach ($required in @('OpenInsert.exe', 'OpenInsert.dll', 'OpenInsert.runtimeconfig.json', 'hostfxr.dll', 'coreclr.dll')) {
         if (-not (Test-Path -LiteralPath (Join-Path $publishDirectory $required))) { throw "Publish output is missing $required" }
     }
     Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $publishDirectory 'LICENSE.txt')
     Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/WINDOWS.md') -Destination (Join-Path $publishDirectory 'WINDOWS.md')
-    [ordered]@{ version = $Version; runtime = $Runtime; selfContained = $true } |
+    [ordered]@{ version = $Version; windowsBuild = [int]$windowsBuild; runtime = $Runtime; selfContained = $true } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $publishDirectory 'build-info.json') -Encoding UTF8
     Write-Host "Built $publishDirectory ($Version, self-contained)."
 } finally {

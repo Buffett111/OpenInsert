@@ -108,6 +108,52 @@ var tests = new (string Name, Func<Task> Run)[]
         True(transport.Aborted);
         Equal("activityEnd", MessageKind(transport.Sent.Last()));
     }),
+    ("thirty seconds of audio keeps producing previews until explicitly finished", async () =>
+    {
+        using var transport = new FakeTransport();
+        var previews = Channel.CreateUnbounded<string>();
+        await using var session = Session(transport, partial: text => previews.Writer.TryWrite(text));
+        await session.StartAsync();
+        var expected = "";
+        // One PCM16/16 kHz chunk represents one second. Exercise many committed segments,
+        // replacement interim hypotheses and server turn boundaries beyond eight seconds.
+        for (var second = 1; second <= 30; second++)
+        {
+            await session.SendAudioAsync(new byte[32000]);
+            transport.Push(Interim($"第 {second}"));
+            Equal(expected + $"第 {second}", await previews.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1)));
+            transport.Push(Interim($"第 {second} 秒"));
+            Equal(expected + $"第 {second} 秒", await previews.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1)));
+            var segment = $"第 {second} 秒。";
+            transport.Push(Final(segment));
+            expected += segment;
+            Equal(expected, await previews.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1)));
+            transport.Push("{\"serverContent\":{\"turnComplete\":true}}");
+        }
+        True(!transport.Aborted);
+        True(!transport.Sent.Any(message => MessageKind(message) == "activityEnd"));
+        Equal(30, transport.Sent.Count(message => MessageKind(message) == "audio"));
+        Equal(expected, await session.FinishAsync());
+    }),
+    ("setup finalization and quiet deadlines do not limit active recording", async () =>
+    {
+        using var transport = new FakeTransport();
+        var previews = Channel.CreateUnbounded<string>();
+        var timing = Timing();
+        await using var session = Session(transport, partial: text => previews.Writer.TryWrite(text), timing: timing);
+        await session.StartAsync();
+        transport.Push(Final("開始。"));
+        Equal("開始。", await previews.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1)));
+        // Exceed all session deadlines while still recording. These deadlines must apply
+        // only to their respective operations, never to the duration of the live session.
+        await Task.Delay(timing.Setup + timing.Finalization + timing.QuietDrain);
+        True(!transport.Aborted);
+        await session.SendAudioAsync(new byte[32000]);
+        transport.Push(Final("繼續。"));
+        Equal("開始。繼續。", await previews.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1)));
+        True(!transport.Sent.Any(message => MessageKind(message) == "activityEnd"));
+        Equal("開始。繼續。", await session.FinishAsync());
+    }),
     ("interim-only result fails closed", async () =>
     {
         using var transport = new FakeTransport();
