@@ -1,6 +1,6 @@
 # OpenInsert for Windows / Windows 安裝指南
 
-The Windows port is a native .NET desktop application in `windows/`. It keeps the existing macOS application in place. Windows source and packaging are available in this checkout; the previously published macOS v0.3.0 release does **not** automatically acquire Windows assets. A maintainer must build and publish a new release before public Windows downloads appear.
+The Windows port is a native .NET desktop application in `windows/`. It keeps the existing macOS application in place. Windows source and packaging are available in this checkout; the previously published macOS v0.3.0 release does **not** automatically acquire Windows assets. A maintainer must build and publish a new release before Windows assets appear on the Releases page.
 
 ## Download and install
 
@@ -14,6 +14,8 @@ When Windows assets are available on [Releases](https://github.com/Buffett111/Op
 | `OpenInsert-<version>-windows-arm64-setup.exe` | Per-user installer for ARM PCs. |
 | `OpenInsert-<version>-windows-<architecture>.zip` | Portable application folder; extract **all** files, then open `OpenInsert.exe` inside the extracted architecture folder. |
 | `OpenInsert-<version>-windows-<architecture>-SHA256SUMS.txt` | SHA-256 values for the corresponding downloadable files. |
+
+Before a public release, review packages are downloadable from successful [Build and test workflow runs](https://github.com/Buffett111/OpenInsert/actions/workflows/ci.yml). Open a run for the intended commit and download the **OpenInsert-win-x64** or **OpenInsert-win-arm64** artifact (GitHub sign-in may be required). Extract that outer artifact archive to find the setup EXE, portable ZIP and checksum manifest. These are unsigned review builds; a successful CI run does not establish real microphone or Google API compatibility.
 
 The setup EXE installs in `%LOCALAPPDATA%\Programs\OpenInsert`, adds a Start menu shortcut and can optionally create a desktop shortcut. It does not request administrator privileges. Both installation methods bundle the .NET runtime, so recipients do not install the SDK or runtime separately. Keep the entire extracted folder together; the EXE depends on the included DLLs and resources.
 
@@ -85,13 +87,25 @@ CI uses the .NET 10 SDK and the Inno Setup installation documented in the [GitHu
 
 Windows validation is separate from [the historical macOS results](VALIDATION.md). CI definitions describe checks to run; adding them does not prove a hosted run has passed. Offline core tests and `--smoke-test` do not establish a successful real microphone → Google → destination-app session. They cannot validate Google's current model access or SmartScreen behavior on a freshly downloaded unsigned artifact.
 
-Local development checks on **2026-09-22** used Windows x64 **10.0.26200**, .NET SDK **10.0.203**, runtime **10.0.7**, and Inno Setup **6.7.3**. The x64 Release application built with zero warnings/errors and its smoke command exited 0. **35 core, 21 UI/settings and 11 default native platform checks passed.** The UI checks exercised both interface languages; the native checks covered in-memory DPAPI encryption, Chinese conversion, shortcut registration conflicts and hold/tap timing boundaries. A provisional self-contained ZIP and installer compiled; the extracted ZIP's smoke command exited 0, both SHA-256 entries matched, and the executable reported version 0.3.0.0. The installer is unsigned. Actionlint 1.7.12 passed both workflow files' syntax/schema/expression checks. This is local build evidence, not a claim of a hosted CI run or clean-machine install; final artifact regeneration and interactive integration results are pending.
+Local checks on **2026-09-22** used Windows x64 **10.0.26200**, .NET SDK **10.0.203**, runtime **10.0.7**, and Inno Setup **6.7.3**:
+
+| Check | Result and scope |
+| --- | --- |
+| Core | 35 offline checks passed. |
+| Windows UI/settings | 21 checks passed, including rendering both interface languages, Ctrl + Space default, consent and shortcut validation. |
+| Native platform | 11 default checks passed: in-memory DPAPI encryption, Chinese conversion, shortcut conflicts and timing boundaries. The optional desktop suite passed 27 checks, including real paste into a separate disposable test editor, clipboard restoration, changed-selection fallback, a stalled-UI key release, and ordered rapid presses after a stall. |
+| Packages | x64 and ARM64 self-contained ZIPs and setup EXEs built. Both executable architecture headers and bundled .NET 10.0.7 runtime metadata were checked; SHA-256 manifests verified. ARM64 was cross-compiled, not executed on ARM hardware. |
+| x64 launch | Release build had zero warnings/errors. The application and the extracted portable ZIP's `--smoke-test` exited 0. |
+| x64 installer | Silent per-user installation to an isolated workspace directory, installed-app smoke check, and uninstall each exited 0. No pre-existing OpenInsert install was present; temporary uninstall registration and test application were removed. `/NOICONS` was used. No saved user settings/key were deleted or loaded. This does not test clean-machine SmartScreen, Start menu UI, upgrade, or reinstall persistence. |
+| Workflows | Actionlint 1.7.12 passed both workflows' syntax/schema/expression checks. [Hosted CI run 35687189550](https://github.com/Buffett111/OpenInsert/actions/runs/35687189550) passed the unchanged macOS test/build job and both Windows package jobs for commit `399065e`; that run is evidence for that commit, not subsequent refinements. |
+
+Windows packages are unsigned. No default microphone was available on the local host, so actual microphone capture and real Google transcription/cleanup remain unverified. Native editor fixtures establish only those controlled cases, not compatibility with every app or the ChatGPT/Codex input. A clean computer without .NET installed, ARM64 hardware, microphone permission behavior and genuinely downloaded-install behavior still need testing.
 
 Before publishing, record results for: fresh installation and uninstall/reinstall; x64 and ARM64 hardware; physical hold/tap and custom shortcuts; microphone permission denial and unplugging; mixed-language voice with a real key; ASR finalization and cleanup; cancellation; focus movement and password fields; clipboard restore and interference; and insertion into Notepad, browser textareas, Word and the intended ChatGPT/Codex inputs. Leave any untested row marked pending. A cross-compiled ARM64 package is not an ARM64 runtime test.
 
 ## 繁體中文操作說明
 
-這次移植提供原生 Windows 桌面程式、可攜 ZIP、免管理員權限的安裝程式，以及 GitHub Actions 打包流程；macOS 程式仍保留。**既有 v0.3.0 發布頁是 macOS 版**，不會因原始碼新增 Windows 支援就自動出現 Windows 下載。維護者發布新版本前，可以依本頁指令自行編譯。
+這次移植提供原生 Windows 桌面程式、可攜 ZIP、免管理員權限的安裝程式，以及 GitHub Actions 打包流程；macOS 程式仍保留。**既有 v0.3.0 發布頁是 macOS 版**，不會因原始碼新增 Windows 支援就自動出現 Windows 下載。維護者發布新版本前，可到成功的 [Build and test 執行紀錄](https://github.com/Buffett111/OpenInsert/actions/workflows/ci.yml)下載 **OpenInsert-win-x64** 或 **OpenInsert-win-arm64** artifact（可能需要登入 GitHub）；解壓外層檔案後即可取得安裝檔、ZIP 與 SHA-256。也可依本頁指令自行編譯。這些是尚未簽章的測試套件。
 
 請使用仍受支援的 **Windows 11**。Intel／AMD 電腦選 `windows-x64`，ARM 電腦選 `windows-arm64`；可在「設定 → 系統 → 關於 → 系統類型」確認。安裝程式技術上允許 Windows 10 build 17763 以上，但不代表這些版本已通過相容性測試；.NET 10 的 Windows 10 支援僅限仍受支援的 LTSC／Enterprise 版本。
 

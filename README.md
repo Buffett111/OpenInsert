@@ -4,7 +4,7 @@
 
 An MIT-licensed dictation app for **macOS and Windows**, using your own Gemini API key. Built for **multilingual dictation and code-switching**, with editable writing-language preferences. Native Swift on macOS; a native .NET desktop app on Windows. No OpenInsert account, developer backend, or screen capture.
 
-**Windows port:** the repository now includes Windows source, self-contained ZIP packaging, a per-user installer, and CI/release jobs. These changes do not add Windows downloads to the existing macOS-only v0.3.0 release. Build locally below, or use Windows assets when a maintainer publishes a new release. See the [Windows guide / Windows 安裝指南](docs/WINDOWS.md) for setup and validation limits.
+**Windows port:** the repository now includes Windows source, self-contained ZIP packaging, a per-user installer, and CI/release jobs. These changes do not add Windows downloads to the existing macOS-only v0.3.0 release. Download review builds from a successful [Build and test workflow](https://github.com/Buffett111/OpenInsert/actions/workflows/ci.yml) (`OpenInsert-win-x64` / `OpenInsert-win-arm64` artifacts), build locally below, or use Windows assets when a maintainer publishes a new release. See the [Windows guide / Windows 安裝指南](docs/WINDOWS.md) for setup and validation limits.
 
 **Early release 0.3.0:** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
 

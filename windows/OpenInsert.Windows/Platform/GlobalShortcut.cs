@@ -49,13 +49,19 @@ public sealed class GlobalShortcut : System.Windows.Forms.NativeWindow, IDisposa
     {
         if (message.Msg == HotKeyMessage && (int)message.WParam == registeredId)
         {
+            // WM_HOTKEY is placed at the top of the queue and can overtake our posted release
+            // after a slow STA callback. Finish the previous gesture before publishing a new
+            // Pressed event, so its release can never be attributed to the new gesture.
+            var messageTime = GetMessageTime();
+            DrainPendingReleases();
+            if (disposed) return;
             lock (gate)
             {
                 if (tracking) { Finish(null); return; }
                 var now = Environment.TickCount64;
                 // WM_HOTKEY may have waited in the queue. Its timestamp uses the same monotonic
                 // millisecond clock as GetTickCount; unsigned subtraction also handles 32-bit wrap.
-                var age = unchecked((uint)now - (uint)GetMessageTime());
+                var age = unchecked((uint)now - (uint)messageTime);
                 pressedAt = now - age;
                 lastHeldAt = now;
                 pressedWindow = GetForegroundWindow();
@@ -70,16 +76,25 @@ public sealed class GlobalShortcut : System.Windows.Forms.NativeWindow, IDisposa
         }
         if (message.Msg == ReleaseMessage)
         {
-            TimeSpan? released;
-            lock (gate)
-            {
-                if (!releases.TryDequeue(out released)) return;
-            }
-            if (released is { } duration) Released?.Invoke(duration);
-            else UncertainRelease?.Invoke();
+            DrainPendingReleases();
             return;
         }
         base.WndProc(ref message);
+    }
+
+    private void DrainPendingReleases()
+    {
+        while (true)
+        {
+            TimeSpan? released;
+            lock (gate)
+            {
+                if (disposed || !releases.TryDequeue(out released)) return;
+            }
+            // Subscribers can stop/cancel work. Invoke only on the STA and outside gate.
+            if (released is { } duration) Released?.Invoke(duration);
+            else UncertainRelease?.Invoke();
+        }
     }
 
     private void CheckRelease()

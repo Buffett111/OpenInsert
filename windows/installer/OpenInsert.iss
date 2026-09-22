@@ -27,6 +27,7 @@ AppUpdatesURL=https://github.com/Buffett111/OpenInsert/releases
 DefaultDirName={localappdata}\Programs\OpenInsert
 DefaultGroupName=OpenInsert
 DisableProgramGroupPage=yes
+AllowNoIcons=yes
 PrivilegesRequired=lowest
 #if AppArchitecture == "arm64"
 ArchitecturesAllowed=arm64

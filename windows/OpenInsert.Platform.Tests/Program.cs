@@ -150,6 +150,7 @@ internal static class Program
                 using var latest = clipboard.Capture();
                 owned = clipboard.WriteText("OpenInsert final fixture", latest);
                 await HotkeyWhileUiBusy();
+                await HotkeyReleaseOrdering();
             }
             finally { if (!helper.HasExited) { helper.CloseMainWindow(); if (!helper.WaitForExit(3000)) helper.Kill(); } }
         }
@@ -198,6 +199,47 @@ internal static class Program
         }
         Check(bytes > 0 && chunks >= 2, "microphone tail drained and channel completed");
         Console.WriteLine($"Captured and discarded {bytes} PCM bytes in {chunks} chunks; no audio files created.");
+    }
+
+    private static async Task HotkeyReleaseOrdering()
+    {
+        using var shortcut = new GlobalShortcut();
+        shortcut.Register(7, 0x87);
+        var events = new System.Collections.Generic.List<string>();
+        var completed = new TaskCompletionSource();
+        var pressCount = 0;
+        shortcut.Pressed += () =>
+        {
+            events.Add("press");
+            if (++pressCount == 1) Thread.Sleep(650);
+        };
+        shortcut.Released += duration =>
+        {
+            events.Add(duration.TotalMilliseconds >= 350 ? "hold" : "tap");
+            if (events.Count >= 4) completed.TrySetResult();
+        };
+        shortcut.UncertainRelease += () => completed.TrySetException(new InvalidOperationException("Unexpected uncertain shortcut release."));
+        static void Down() { foreach (byte key in new byte[] { 0x11, 0x12, 0x10, 0x87 }) keybd_event(key, 0, 0, 0); }
+        static void Up() { foreach (byte key in new byte[] { 0x87, 0x10, 0x12, 0x11 }) keybd_event(key, 0, 2, 0); }
+        Down();
+        var input = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(120);
+                Up(); // First release posts while the first Pressed callback still blocks.
+                await Task.Delay(430);
+                Down(); // A second WM_HOTKEY can overtake the posted release in the queue.
+                await Task.Delay(500);
+            }
+            finally { Up(); }
+        });
+        try
+        {
+            await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Equal("press,tap,press,hold", string.Join(',', events), "queued release precedes next press after STA stall");
+        }
+        finally { await input; }
     }
 
     private static void Check(bool condition, string name)
