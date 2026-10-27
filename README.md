@@ -4,13 +4,9 @@
 
 An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Built for **multilingual dictation and code-switching**, with editable writing-language preferences. Native Swift, no third-party package dependencies, no OpenInsert account, no screen capture.
 
-**Early release 0.3.0:** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
+**Early release 0.3.2:** read [validation status](docs/VALIDATION.md) before relying on it. The source is open; Google Gemini is a cloud service, not an open or local speech model. API charges and Google's data terms apply.
 
-Version 0.3.0 adds switchable English/Traditional Chinese interfaces and recorded custom shortcuts. It also includes the compact green microphone waveform introduced in 0.2.8.
-
-The 0.3.1 source additionally removes single segmentation spaces between Chinese characters and adjacent Chinese punctuation for Chinese writing preferences, including live captions and Verbatim mode. Published downloads remain 0.3.0 until the next release.
-
-The 0.3.2 source removes an unused blank Settings window. Opening the app again or choosing its settings shortcut reuses the existing main window.
+Version 0.3.2 fixes extra spaces between Chinese characters in live captions and final text, including Verbatim mode, and removes an unused blank Settings window. It retains English/Traditional Chinese interfaces, recorded custom shortcuts and the compact green microphone waveform. Opening the app again or choosing its settings shortcut reuses the existing main window.
 
 [繁體中文說明](#繁體中文快速開始) · [Detailed survey](docs/SURVEY.md) · [Dup model evidence](docs/DUP_MODELS.md) · [Architecture](docs/ARCHITECTURE.md) · [Privacy](docs/PRIVACY.md)
 
@@ -33,7 +29,7 @@ There is no guarantee that every editor accepts automatic insertion. Secure fiel
 
 ## Download and setup
 
-Get published `.dmg` or `.zip` builds from [Releases](https://github.com/Buffett111/OpenInsert/releases). [Version 0.3.0](https://github.com/Buffett111/OpenInsert/releases/tag/v0.3.0) includes interface language switching, custom shortcuts and the compact waveform, alongside the clipboard and input compatibility fixes. Universal builds contain Apple Silicon and Intel executables. macOS 13 or newer is required.
+Get published `.dmg` or `.zip` builds from [Releases](https://github.com/Buffett111/OpenInsert/releases). [Version 0.3.2](https://github.com/Buffett111/OpenInsert/releases/tag/v0.3.2) includes Chinese spacing and blank-window fixes, interface language switching, custom shortcuts and the compact waveform. Universal builds contain Apple Silicon and Intel executables. macOS 13 or newer is required.
 
 1. Move `OpenInsert.app` to Applications and open it.
 2. Quit Dup or another app that already owns Option + Space.
@@ -95,11 +91,11 @@ Build scripts use project-local caches. In an environment that forbids nested `s
 
 ## 繁體中文快速開始
 
-OpenInsert 0.3.0 是支援多語言混用（code-switching）的開源 macOS 語音輸入工具，目前提供 early release。預設 **Option + Space**：按住至少 0.35 秒說話、放開完成；也可短按開始、再按一次結束。說話時透過你自己的 Gemini API key，將音訊直接串流到 **Gemini 3.5 Transcribe Live**。選擇輕度整理時，確定的逐字稿再交給 **Gemini 3.5 Flash Lite**；逐字模式跳過這一步。
+OpenInsert 0.3.2 是支援多語言混用（code-switching）的開源 macOS 語音輸入工具，目前提供 early release。預設 **Option + Space**：按住至少 0.35 秒說話、放開完成；也可短按開始、再按一次結束。說話時透過你自己的 Gemini API key，將音訊直接串流到 **Gemini 3.5 Transcribe Live**。選擇輕度整理時，確定的逐字稿再交給 **Gemini 3.5 Flash Lite**；逐字模式跳過這一步。
 
-0.3.0 提供繁體中文／English 介面切換，與「文字語言偏好」分開；新增翻譯可參閱[本地化指南](docs/LOCALIZATION.md)。「辨識偏好」可直接按鍵錄製自訂快捷鍵，預設仍為 Option + Space；只有成功註冊才儲存，取消不變更原設定。
+0.3.2 已移除多餘的空白設定視窗；重新開啟 App 或按 ⌘, 都回到同一主視窗。程式提供繁體中文／English 介面切換，與「文字語言偏好」分開；新增翻譯可參閱[本地化指南](docs/LOCALIZATION.md)。「辨識偏好」可直接按鍵錄製自訂快捷鍵，預設仍為 Option + Space；只有成功註冊才儲存，取消不變更原設定。
 
-第一次使用請在「連線與權限」儲存 API key、同意即時音訊串流與可選文字整理、開啟麥克風與輔助使用權限，並先結束 Dup 避免快捷鍵衝突。由 0.1 升級需要重新同意。「文字語言偏好」可選繁體中文（台灣）、自動、簡體中文、English、日本語、韓語或自訂。ASR 仍自動偵測語言；繁／簡選項在本機轉換中文字形（含即時字幕），保留原本的多語言混用，不要求翻譯。0.3.1 原始碼也會清除中文分詞造成的單一字間空格與中文標點旁空格，逐字模式同樣適用；保留英數邊界、換行、Tab、多空格排版、行內程式碼、一般程式碼圍欄及縮排行，含日文假名或韓文的行不做空格修正。
+第一次使用請在「連線與權限」儲存 API key、同意即時音訊串流與可選文字整理、開啟麥克風與輔助使用權限，並先結束 Dup 避免快捷鍵衝突。由 0.1 升級需要重新同意。「文字語言偏好」可選繁體中文（台灣）、自動、簡體中文、English、日本語、韓語或自訂。ASR 仍自動偵測語言；繁／簡選項在本機轉換中文字形（含即時字幕），保留原本的多語言混用，不要求翻譯。自 0.3.1 起也會清除中文分詞造成的單一字間空格與中文標點旁空格，逐字模式同樣適用；保留英數邊界、換行、Tab、多空格排版、行內程式碼、一般程式碼圍欄及縮排行，含日文假名或韓文的行不做空格修正。
 
 後修使用 minimal thinking，最多等待 8 秒，可按「略過後修，直接使用辨識結果」。略過或遇到逾時、網路、429／5xx 等暫時錯誤時，會明確告知改用已定稿 ASR，並經相同的焦點檢查後插入。取消整次工作、永久錯誤、被拒絕或不完整的回覆不觸發自動插入；未定稿預覽永遠不會升格使用。介面分開顯示 ASR 收尾與後修時間。
 

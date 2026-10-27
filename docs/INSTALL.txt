@@ -1,4 +1,4 @@
-OpenInsert 0.3.0 — macOS 13 or later
+OpenInsert 0.3.2 — macOS 13 or later
 Community prerelease: ad-hoc signed and not notarized.
 
 1. Drag OpenInsert.app to Applications.
@@ -21,8 +21,14 @@ Community prerelease: ad-hoc signed and not notarized.
    Simplified Chinese, English, Japanese, Korean or custom. ASR still detects spoken
    languages automatically. Chinese forms are converted locally, including previews;
    mixed-language speech is preserved and the menu does not request translation.
+   Chinese preferences also remove isolated ASR spaces between Chinese characters
+   and adjacent Chinese punctuation locally, including in Verbatim mode. English
+   boundaries, newlines, tabs, repeated spaces and common code blocks are preserved;
+   lines containing Japanese kana or Hangul are excluded from spacing normalization.
 9. Switch the interface between English and Traditional Chinese with the language
    picker at the bottom of the window. This is separate from writing preferences.
+   Settings (Command-comma) and reopening the app reuse the main window; there is
+   no separate blank Settings window.
 10. In Preferences, choose Change shortcut, press a combination and save it.
     General keys require Command, Option or Control; F1–F20 may be used alone.
     Escape cancels. A conflicting candidate does not replace the saved setting.
