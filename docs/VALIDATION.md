@@ -1,6 +1,14 @@
 # 驗證紀錄
 
-記錄日期：2026-10-27；目前原始碼與本機版本為 0.3.1／build 13，公開 prerelease 仍為 0.3.0／build 12。本次測試環境為 macOS 27.0.1（26A434）、arm64、Apple Swift 6.4、Command Line Tools；較早版本的紀錄使用當時 macOS 27.0（26A428）。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+記錄日期：2026-10-27；目前原始碼與本機版本為 0.3.2／build 14，公開 prerelease 仍為 0.3.0／build 12。本次測試環境為 macOS 27.0.1（26A434）、arm64、Apple Swift 6.4、Command Line Tools；較早版本的紀錄使用當時 macOS 27.0（26A428）。此頁區分新版已執行檢查、待驗證項目與歷史證據；建置成功不代表真實語音辨識及所有應用程式插入已驗證。
+
+## 0.3.2 移除空白設定視窗（未發布）
+
+- **實機重現**：0.3.1 App 選單的 Settings… 呼叫 `showSettingsWindow:`，開啟只有標題與關閉鈕的空白 `OpenInsert Settings`；AX identifier 為 `com_apple_SwiftUI_Settings_window`。對應來源是 `Settings { EmptyView() }`，真正設定內容則已在另一個 AppDelegate 主視窗，確認為多餘的空白設定 scene。
+- **修正**：改由 AppKit 啟動並強持有同一 AppDelegate，保留 NSHostingView 中的 SwiftUI 主畫面；不再建立 SwiftUI Settings scene。設定選單／⌘,、選單列開啟及重新開啟都顯示同一主視窗，並處理最小化；最後視窗關閉不結束選單列 App。原生編輯／視窗選單採 responder chain，英／繁中選單資源同步切換。CLI 診斷、語音選單及貼上期間延後退出邏輯保留。
+- **建置與回歸通過**：完整 App macOS 13／Swift 5 typecheck、149／149 XCTest、universal 建置與 strict codesign 通過。先備份已安裝的 0.3.1，再更新至 0.3.2／build 14；簽署 designated requirement 相同，已安裝執行檔與最終 staging 一致。
+- **原生 UI 通過**：重新啟動及點選設定選單顯示有內容的 OpenInsert 主視窗，重複設定快捷鍵未開出空白 Settings；視窗選單只列一個 OpenInsert。關閉主視窗後，再由工具要求開啟可正常顯示主畫面。固定非敏感文字驗證貼上、全選、刪除、Undo 及 Redo；測試文字已清空。快捷鍵錄製的 Enter 確實保存新候選，Escape 取消另一候選後保留原設定，最後恢復 Option–Space。原生 UI 確認 API key 已儲存、Google 同意、麥克風／輔助使用啟用，繁中與逐字模式保留。
+- **範圍**：0.3.1 的中文空格修正及使用者初步成功回報仍保留；本次視窗更新未重新進行真實錄音／Google／跨 App 插入測試，也未重新呼叫計費診斷。
 
 ## 0.3.1 中文分詞空格修正（未發布）
 
@@ -9,6 +17,7 @@
 - **149／149 XCTest 通過**：原有 123 項加上 19 項空格整理、3 項偏好整合及 4 項 Live 回歸測試。涵蓋使用者提供的逐字空格例句、繁簡字形、兩種輸出模式、跨 segment 的英文空格、段落、NBSP／全形空格、非 BMP 漢字、變體選擇符、emoji、程式碼及日韓行。Live 測試確認預覽格式化不改變原始累積、不升格未定稿，晚到 final 不重複。
 - **建置與本機更新通過**：完成最終來源的原生測試建置與 universal App 建置，兩架構最低 macOS 13.0、strict codesign 通過；designated requirement 與已安裝 0.3.0 相同。已備份舊 App 並安裝 `/Applications/OpenInsert.app` 0.3.1／build 13，執行檔與已驗證 staging 一致。原生 UI 確認新版已啟動，API key 已儲存、Google 同意、麥克風及輔助使用啟用，繁中介面／繁中書寫偏好、逐字模式及 Option–Space 都保留。未重設權限或讀出金鑰。
 - **使用者初步實測通過**：更新後請使用者維持中文輸入法進行中英混合語音測試；使用者回覆目前沒有再出現這種空格情況，後續會持續測試。這支持本次實機結果，不代表所有輸入內容或 App 都已驗證。自動化測試仍只使用固定字串與 fake transport，沒有自行開啟麥克風或呼叫 Google。
+- **GitHub CI 通過**：[Build and test](https://github.com/Buffett111/OpenInsert/actions/runs/40468514586)（commit `b6db7ed`）完成單元測試、合成 PCM 檢查及 universal 建置。此結果驗證 0.3.1 的來源與建置；尚未發布新的 Release。
 
 ## 0.3.0 介面多語系與自訂快捷鍵（已發布）
 

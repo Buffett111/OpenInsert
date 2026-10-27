@@ -10,6 +10,8 @@ Version 0.3.0 adds switchable English/Traditional Chinese interfaces and recorde
 
 The 0.3.1 source additionally removes single segmentation spaces between Chinese characters and adjacent Chinese punctuation for Chinese writing preferences, including live captions and Verbatim mode. Published downloads remain 0.3.0 until the next release.
 
+The 0.3.2 source removes an unused blank Settings window. Opening the app again or choosing its settings shortcut reuses the existing main window.
+
 [繁體中文說明](#繁體中文快速開始) · [Detailed survey](docs/SURVEY.md) · [Dup model evidence](docs/DUP_MODELS.md) · [Architecture](docs/ARCHITECTURE.md) · [Privacy](docs/PRIVACY.md)
 
 ## What it does

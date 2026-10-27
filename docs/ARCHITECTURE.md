@@ -1,6 +1,8 @@
 # OpenInsert 架構與取捨
 
-本文描述尚未發布的 0.3.0 原始碼設計。平台為 macOS 13 以上，Swift Package 使用 Swift tools 5.9；程式本身不依賴第三方 package。編譯、單元測試、UI、真實 API 與跨應用插入屬不同驗證層，實際執行結果以 [VALIDATION.md](VALIDATION.md) 為準。
+本文描述 0.3.2 原始碼設計，公開下載版本仍為 0.3.0。平台為 macOS 13 以上，Swift Package 使用 Swift tools 5.9；程式本身不依賴第三方 package。編譯、單元測試、UI、真實 API 與跨應用插入屬不同驗證層，實際執行結果以 [VALIDATION.md](VALIDATION.md) 為準。
+
+0.3.2 以 AppKit 管理 App 生命週期，由同一個 `AppDelegate` 擁有主視窗並以 `NSHostingView` 顯示 SwiftUI 內容。移除原本無內容的 SwiftUI `Settings` scene，避免產生第二個空白設定視窗；設定快捷鍵及重新開啟 App 都顯示既有主視窗。原生編輯選單與關閉視窗／結束 App 快捷鍵保留，關閉主視窗後選單列語音功能仍可用。
 
 ## 使用流程
 
