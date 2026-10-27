@@ -12,13 +12,17 @@ public struct DictationOptions: Sendable {
     public var vocabulary: String
     public var mode: CleanupMode
 
-    /// Character-form conversion only; this does not translate or rewrite the transcript.
+    /// Local writing-system formatting for previews and accepted final text.
+    /// Chinese preferences also remove single ASR segmentation spaces; this
+    /// never translates words or makes an additional provider request.
     public func applyingOrthography(to text: String) -> String {
         switch languagePreference ?? DictationLanguage.matchingPreset(for: language) {
         case .traditionalChinese:
-            return text.applyingTransform(StringTransform("Hans-Hant"), reverse: false) ?? text
+            let converted = text.applyingTransform(StringTransform("Hans-Hant"), reverse: false) ?? text
+            return ChineseSpacingNormalizer.normalize(converted)
         case .simplifiedChinese:
-            return text.applyingTransform(StringTransform("Hant-Hans"), reverse: false) ?? text
+            let converted = text.applyingTransform(StringTransform("Hant-Hans"), reverse: false) ?? text
+            return ChineseSpacingNormalizer.normalize(converted)
         default:
             return text
         }

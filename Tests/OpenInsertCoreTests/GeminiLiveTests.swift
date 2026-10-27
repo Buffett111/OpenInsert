@@ -104,6 +104,133 @@ final class GeminiLiveTests: XCTestCase {
         XCTAssertTrue(accumulator.hasInterim)
     }
 
+    func testChineseSpacingFormatsSnapshotsWithoutChangingRawSegmentsOrFinality() throws {
+        let options = DictationOptions(languagePreference: .traditionalChinese)
+        var accumulator = GeminiLiveTranscript()
+        try accumulator.consume(GeminiLiveEvent.decode(Data(#"{"serverContent":{"interimInputTranscription":{"text":"今 天 想 說\nOpen"}}}"#.utf8)))
+        XCTAssertEqual(accumulator.preview, "今 天 想 說\nOpen")
+        XCTAssertEqual(options.applyingOrthography(to: accumulator.preview), "今天想說\nOpen")
+        XCTAssertEqual(accumulator.committed, "")
+        XCTAssertTrue(accumulator.hasInterim)
+
+        try accumulator.consume(GeminiLiveEvent.decode(Data(#"{"serverContent":{"inputTranscription":{"text":"今 天 想 說\nOpen "}}}"#.utf8)))
+        try accumulator.consume(GeminiLiveEvent.decode(Data(#"{"serverContent":{"inputTranscription":{"text":"Insert works.\n"},"interimInputTranscription":{"text":"接 下 來"}}}"#.utf8)))
+        let rawCommitted = "今 天 想 說\nOpen Insert works.\n"
+        XCTAssertEqual(accumulator.committed, rawCommitted)
+        XCTAssertEqual(options.applyingOrthography(to: accumulator.preview), "今天想說\nOpen Insert works.\n接下來")
+        XCTAssertTrue(accumulator.hasInterim)
+
+        try accumulator.consume(GeminiLiveEvent.decode(Data(#"{"serverContent":{"interimInputTranscription":{"text":"接 下 來 測 試"}}}"#.utf8)))
+        XCTAssertEqual(accumulator.preview, rawCommitted + "接 下 來 測 試")
+        XCTAssertEqual(options.applyingOrthography(to: accumulator.preview), "今天想說\nOpen Insert works.\n接下來測試")
+        XCTAssertEqual(accumulator.committed, rawCommitted, "Formatting a revised preview must not commit it")
+
+        try accumulator.consume(GeminiLiveEvent.decode(Data(#"{"serverContent":{"inputTranscription":{"text":"接 下 來 測 試。"}}}"#.utf8)))
+        XCTAssertFalse(accumulator.hasInterim)
+        XCTAssertEqual(accumulator.committed, rawCommitted + "接 下 來 測 試。")
+        XCTAssertEqual(accumulator.preview, accumulator.committed)
+        XCTAssertEqual(options.applyingOrthography(to: accumulator.committed), "今天想說\nOpen Insert works.\n接下來測試。")
+        XCTAssertEqual(accumulator.committed, rawCommitted + "接 下 來 測 試。", "Display formatting must not mutate provider text")
+    }
+
+    func testChineseSpacingAcrossFinalSegmentsPreservesEnglishAndStructuredText() throws {
+        let options = DictationOptions(languagePreference: .traditionalChinese)
+        let segments = [
+            "中 文 的 測 試。\n", "對  齊\t欄  位\n", "English ", "chunk\nnext line\n",
+            "`中 文`\n", "```text\n", "中 文\n", "```\n",
+            "    let value = \"中 文\";\n", "\tlet label = \"中 文\";\n",
+            "日 本 語 の 文\n", "한 글 과 漢 字\n", "再 見。"
+        ]
+        var accumulator = GeminiLiveTranscript()
+        for segment in segments {
+            let data = try JSONSerialization.data(withJSONObject: ["serverContent": ["inputTranscription": ["text": segment]]])
+            try accumulator.consume(GeminiLiveEvent.decode(data))
+        }
+        let raw = segments.joined()
+        XCTAssertEqual(accumulator.committed, raw)
+        XCTAssertEqual(accumulator.preview, raw)
+        XCTAssertFalse(accumulator.hasInterim)
+        XCTAssertEqual(options.applyingOrthography(to: accumulator.committed),
+                       "中文的測試。\n對  齊\t欄  位\nEnglish chunk\nnext line\n`中 文`\n```text\n中 文\n```\n    let value = \"中 文\";\n\tlet label = \"中 文\";\n日 本 語 の 文\n한 글 과 漢 字\n再見。")
+        XCTAssertEqual(accumulator.committed, raw)
+    }
+
+    func testFormattedChineseInterimStillTimesOutWithoutAuthoritativeFinal() async throws {
+        let options = DictationOptions(languagePreference: .traditionalChinese)
+        let socket = FakeLiveTransport()
+        let clock = ManualLiveClock()
+        defer { clock.resolveAll() }
+        let rawUpdates = PreviewLog()
+        let formattedUpdates = PreviewLog()
+        let received = expectation(description: "formatted interim received")
+        let controlled = GeminiLiveTiming(setup: 100, finalization: 200, quietDrain: 1, send: 300)
+        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: controlled, clock: clock) { text in
+            rawUpdates.append(text)
+            formattedUpdates.append(options.applyingOrthography(to: text))
+            received.fulfill()
+        }
+        try await client.start()
+        socket.onSend = { text in
+            if text == GeminiLiveProtocol.activityEnd {
+                socket.push(#"{"serverContent":{"interimInputTranscription":{"text":"尚 未 定 稿\nEnglish words"},"inputTranscription":{"finished":true},"turnComplete":true}}"#)
+            }
+        }
+        let finishing = Task { try await client.finish() }
+        await fulfillment(of: [received], timeout: 1)
+        let deadline = try await waitForSleep(clock, seconds: 200)
+        XCTAssertEqual(rawUpdates.values.last, "尚 未 定 稿\nEnglish words")
+        XCTAssertEqual(formattedUpdates.values.last, "尚未定稿\nEnglish words")
+        XCTAssertNil(clock.id(seconds: 1, ordinal: 1), "Readable preview must not start the final drain")
+        clock.fire(deadline)
+        do { _ = try await finishing.value; XCTFail("Formatting must not promote interim text") }
+        catch { XCTAssertEqual(error as? GeminiLiveError, .finalizationTimeout) }
+        let stats = await client.diagnostics()
+        XCTAssertEqual(stats.finalSegmentCount, 0)
+        XCTAssertEqual(stats.interimUpdateCount, 1)
+        XCTAssertTrue(stats.hasInterim)
+        XCTAssertTrue(socket.cancelled)
+    }
+
+    func testLateChineseFinalReplacesFormattedInterimAndReturnsUntouchedRawText() async throws {
+        let options = DictationOptions(languagePreference: .traditionalChinese)
+        let socket = FakeLiveTransport()
+        let clock = ManualLiveClock()
+        defer { clock.resolveAll() }
+        let rawUpdates = PreviewLog()
+        let formattedUpdates = PreviewLog()
+        let received = expectation(description: "interim after first final received")
+        let controlled = GeminiLiveTiming(setup: 100, finalization: 200, quietDrain: 1, send: 300)
+        let initial = "中 文\nHello world。\n再 見"
+        let client = GeminiLiveTranscriber(apiKey: key, transport: socket, timing: controlled, clock: clock) { text in
+            rawUpdates.append(text)
+            formattedUpdates.append(options.applyingOrthography(to: text))
+            if text == initial { received.fulfill() }
+        }
+        try await client.start()
+        socket.onSend = { text in
+            if text == GeminiLiveProtocol.activityEnd {
+                socket.push(#"{"serverContent":{"inputTranscription":{"text":"中 文\nHello "},"interimInputTranscription":{"text":"world。\n再 見"}}}"#)
+            }
+        }
+        let finishing = Task { try await client.finish() }
+        await fulfillment(of: [received], timeout: 1)
+        XCTAssertEqual(formattedUpdates.values.last, "中文\nHello world。\n再見")
+        XCTAssertNil(clock.id(seconds: 1, ordinal: 1))
+        socket.push(#"{"serverContent":{"inputTranscription":{"text":"world.\n再 見。"}}}"#)
+        let drain = try await waitForSleep(clock, seconds: 1)
+        clock.fire(drain)
+        let rawResult = try await finishing.value
+        XCTAssertEqual(rawResult, "中 文\nHello world.\n再 見。")
+        XCTAssertEqual(rawUpdates.values.last, rawResult)
+        XCTAssertEqual(formattedUpdates.values.last, "中文\nHello world.\n再見。")
+        XCTAssertEqual(options.applyingOrthography(to: rawResult), "中文\nHello world.\n再見。")
+        let stats = await client.diagnostics()
+        XCTAssertEqual(stats.finalSegmentCount, 2)
+        XCTAssertEqual(stats.interimUpdateCount, 1)
+        XCTAssertFalse(stats.hasInterim)
+        XCTAssertTrue(socket.cancelled)
+    }
+
     func testFinalBeforeTurnCompleteUsesOnlyCommittedText() async throws {
         let socket = FakeLiveTransport()
         let updates = PreviewLog()

@@ -8,6 +8,8 @@ An MIT-licensed macOS menu bar dictation app using your own Gemini API key. Buil
 
 Version 0.3.0 adds switchable English/Traditional Chinese interfaces and recorded custom shortcuts. It also includes the compact green microphone waveform introduced in 0.2.8.
 
+The 0.3.1 source additionally removes single segmentation spaces between Chinese characters and adjacent Chinese punctuation for Chinese writing preferences, including live captions and Verbatim mode. Published downloads remain 0.3.0 until the next release.
+
 [繁體中文說明](#繁體中文快速開始) · [Detailed survey](docs/SURVEY.md) · [Dup model evidence](docs/DUP_MODELS.md) · [Architecture](docs/ARCHITECTURE.md) · [Privacy](docs/PRIVACY.md)
 
 ## What it does
@@ -18,7 +20,7 @@ Version 0.3.0 adds switchable English/Traditional Chinese interfaces and recorde
 - Streams microphone audio directly to **Gemini 3.5 Transcribe Live** over WebSocket while you speak. Raw 16 kHz mono PCM stays in bounded memory buffers; no audio file is created. Dictation is limited to about two minutes.
 - Shows live previews, processing status, and errors in a floating panel while you keep typing in another app. The panel does not activate OpenInsert or intercept clicks. **Unfinalized previews are never inserted.**
 - Offers verbatim output or a separate, text-only cleanup request to **Gemini 3.5 Flash Lite**, using minimal thinking with an eight-second total deadline. You can skip cleanup while waiting. A skip or temporary cleanup failure uses the finalized ASR text and reports the fallback; cancellation, invalid/blocked responses, and permanent errors stop automatic insertion.
-- Provides a writing-language menu: Traditional Chinese (Taiwan), automatic, Simplified Chinese, English, Japanese, Korean, or custom. ASR still detects spoken languages automatically; mixed-language speech is preserved. Chinese character conversion happens locally, including live previews; the menu does not request translation.
+- Provides a writing-language menu: Traditional Chinese (Taiwan), automatic, Simplified Chinese, English, Japanese, Korean, or custom. ASR still detects spoken languages automatically; mixed-language speech is preserved. Chinese character conversion and conservative spacing normalization happen locally, including live previews and Verbatim mode; the menu does not request translation. English/number boundaries, line breaks, tabs, repeated spaces, inline code, ordinary fenced code blocks and indented code lines retain their spacing. Lines containing Japanese kana or Hangul are excluded from spacing normalization.
 - Uses Accessibility to validate the input target, then requests a standard **Command-V clipboard paste** in every supported app. It does not write transcript text through AX attributes or synthesize Return. The floating panel hides as soon as the paste is dispatched, while clipboard restoration completes in the background; it does not linger over the editor with a completion message.
 - Checks the original app, input element, and available selection metadata before insertion. If a completed dictation has no valid input target or a supported insertion error occurs before paste is dispatched, it automatically copies the finalized result and shows a copied status in the floating panel. You can paste it yourself without reopening OpenInsert.
 - Normal paste restores all readable clipboard formats only if the clipboard has not changed. Automatic copy is intentional and persistent: it replaces the clipboard without restoring its old contents, even when paste restoration is enabled. Cancellation, missing final text, permanent provider failures, and clipboard ownership/read/write errors do not trigger automatic copy.
@@ -95,7 +97,7 @@ OpenInsert 0.3.0 是支援多語言混用（code-switching）的開源 macOS 語
 
 0.3.0 提供繁體中文／English 介面切換，與「文字語言偏好」分開；新增翻譯可參閱[本地化指南](docs/LOCALIZATION.md)。「辨識偏好」可直接按鍵錄製自訂快捷鍵，預設仍為 Option + Space；只有成功註冊才儲存，取消不變更原設定。
 
-第一次使用請在「連線與權限」儲存 API key、同意即時音訊串流與可選文字整理、開啟麥克風與輔助使用權限，並先結束 Dup 避免快捷鍵衝突。由 0.1 升級需要重新同意。「文字語言偏好」可選繁體中文（台灣）、自動、簡體中文、English、日本語、韓語或自訂。ASR 仍自動偵測語言；繁／簡選項在本機轉換中文字形（含即時字幕），保留原本的多語言混用，不要求翻譯。
+第一次使用請在「連線與權限」儲存 API key、同意即時音訊串流與可選文字整理、開啟麥克風與輔助使用權限，並先結束 Dup 避免快捷鍵衝突。由 0.1 升級需要重新同意。「文字語言偏好」可選繁體中文（台灣）、自動、簡體中文、English、日本語、韓語或自訂。ASR 仍自動偵測語言；繁／簡選項在本機轉換中文字形（含即時字幕），保留原本的多語言混用，不要求翻譯。0.3.1 原始碼也會清除中文分詞造成的單一字間空格與中文標點旁空格，逐字模式同樣適用；保留英數邊界、換行、Tab、多空格排版、行內程式碼、一般程式碼圍欄及縮排行，含日文假名或韓文的行不做空格修正。
 
 後修使用 minimal thinking，最多等待 8 秒，可按「略過後修，直接使用辨識結果」。略過或遇到逾時、網路、429／5xx 等暫時錯誤時，會明確告知改用已定稿 ASR，並經相同的焦點檢查後插入。取消整次工作、永久錯誤、被拒絕或不完整的回覆不觸發自動插入；未定稿預覽永遠不會升格使用。介面分開顯示 ASR 收尾與後修時間。
 

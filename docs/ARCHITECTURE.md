@@ -32,7 +32,7 @@ GeminiLiveTranscriber → WSS → gemini-3.5-transcribe-live
 停止錄音 → 排空音訊尾端 → activityEnd → 等待完成條件
         │
         ▼
-確定 ASR 文字 → 本機繁中字形處理 → 保存在 RAM
+確定 ASR 文字 → 本機繁簡字形與中文空格處理 → 保存在 RAM
         │
         ├─ 逐字模式 → 直接使用文字
         └─ 輕度整理 → HTTPS → gemini-3.5-flash-lite（只有文字）
@@ -100,6 +100,8 @@ key 視為不解讀內容的 opaque 字串：去除貼上時的前後空白後�
 Google 說明 AI Studio 自 2026-05-28 起預設建立綁定 service account 的 authorization key；Cloud 文件將 `keyString` 定義為呼叫 API 使用的加密字串，未提供此處舊 regex 可依賴的固定長度／字元規範。OpenInsert 不解析、解碼或猜測 key 身分。這修正了可由原始碼確認的本機拒絕路徑；未讀取任何使用者實際 key，因此不能據此確認個別失敗的根因，也不能宣稱已完成真實服務驗證。[Gemini key 指引](https://ai.google.dev/gemini-api/docs/api-key)、[Google Cloud API keys](https://docs.cloud.google.com/docs/authentication/api-keys)
 
 setup 指定 `responseModalities: ["TEXT"]`、`inputAudioTranscription.mode: "VERBATIM"`、自訂詞彙與 `languageCodes: []`。語言自動偵測，不把 UI 的自然語言偏好字串誤當 BCP-47 code；官方表未列台灣華語專用的繁中 code。0.2.3 的文字語言選單提供繁體中文（台灣）、自動、簡體中文、English、日本語、韓語與自訂；舊的已知標籤移轉至對應選項，其他自訂文字保留。繁／簡偏好在即時預覽及定稿後用本機 `Hans-Hant`／`Hant-Hans` 字形轉換，英文維持原樣；其他選項保留原字形，並作為可選整理的書寫偏好。此選單不指定翻譯目標，字形轉換也不能保證台灣用詞、專有名詞或一對多字形全正確。
+
+0.3.1 在相同 `applyingOrthography` 路徑加入中文偏好的確定性空格處理：只移除漢字彼此及漢字與指定中文標點間的單一水平空格。即時預覽、定稿 ASR、成功後修及略過／暫時失敗回退共用同一處理；逐字模式不需額外模型呼叫。原始 Live segment 累積保持不變，未定稿不因此變成可插入結果。英數邊界、換行、Tab、重複空格排版、Markdown inline code、一般 fenced code 與四空格／Tab 縮排行保留（不是完整 Markdown parser）；含假名或 Hangul 的行不處理空格。自動、英文、日文、韓文及自訂偏好不啟用這項中文規則。貼上仍是一筆完整剪貼簿文字加 Command-V，沒有切換輸入法或逐字模擬按鍵。
 
 採 manual VAD：關閉 `automaticActivityDetection`，收到 `setupComplete` 後才送 `activityStart` 及 PCM chunks；結束時送 `activityEnd`，不混用 auto VAD 路徑的 `audioStreamEnd`。`interimInputTranscription` 更新未定稿假說；`inputTranscription` 附加確定段落並清掉前一段 interim。未定稿預覽不寫入目的 App。[Live Transcription](https://ai.google.dev/gemini-api/docs/live-api/live-transcribe)
 

@@ -79,4 +79,30 @@ final class DictationLanguageTests: XCTestCase {
             XCTAssertEqual(options.applyingOrthography(to: original), original, selection.rawValue)
         }
     }
+
+    func testChineseSpacingIsFixedInBothVerbatimAndPolishedModes() {
+        let source = "有 時 候 gemini 會 自 動 修 復，但 有 時 候 呢 ， 它 就 是 會 在 每 個 中 文 字 之 間 都 保 留 空 格"
+        let expected = "有時候 gemini 會自動修復，但有時候呢，它就是會在每個中文字之間都保留空格"
+        for mode in CleanupMode.allCases {
+            let options = DictationOptions(mode: mode, languagePreference: .traditionalChinese)
+            XCTAssertEqual(options.applyingOrthography(to: source), expected, mode.rawValue)
+            // ASR and later cleanup responses pass through the same formatter.
+            XCTAssertEqual(options.applyingOrthography(to: expected), expected, mode.rawValue)
+        }
+    }
+
+    func testSpacingFollowsChinesePreferenceAndLegacyHintWithCharacterConversion() {
+        XCTAssertEqual(DictationOptions(language: "zh-TW").applyingOrthography(to: "语 音 输 入 API key 123"),
+                       "語音輸入 API key 123")
+        XCTAssertEqual(DictationOptions(languagePreference: .simplifiedChinese).applyingOrthography(to: "語 音 輸 入 API key 123"),
+                       "语音输入 API key 123")
+    }
+
+    func testNonChinesePreferencesLeaveSegmentationSpacesUnchanged() {
+        let original = "中 文 English words 123 空 格"
+        for selection in [DictationLanguage.automatic, .english, .japanese, .korean, .custom] {
+            let options = DictationOptions(language: selection.promptHint, languagePreference: selection)
+            XCTAssertEqual(options.applyingOrthography(to: original), original, selection.rawValue)
+        }
+    }
 }

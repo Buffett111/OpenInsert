@@ -40,7 +40,7 @@
 "preferences.mode.polished" = "輕度整理";
 "preferences.mode.verbatim" = "逐字辨識";
 "preferences.language" = "文字語言偏好";
-"preferences.language.detail" = "預設繁體中文並保留多語言混用。辨識仍自動偵測語言；繁／簡選項會在本機轉換中文字形，其他選項提供整理時的書寫偏好，不會把內容翻譯成所選語言。";
+"preferences.language.detail" = "預設繁體中文並保留多語言混用。繁／簡選項會在本機轉換字形並移除中文字間多餘空格，逐字模式也適用。辨識仍自動偵測語言，不會把內容翻譯成所選語言。";
 "preferences.language.placeholder" = "例如：保留廣東話用字與口述英文";
 "preferences.language.custom" = "自訂書寫語言偏好";
 "preferences.language.legacy" = "舊版自訂偏好會保留於此；此欄用於書寫與標點偏好。需要繁簡字形轉換時，請選擇上方對應選項。";

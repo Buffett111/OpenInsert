@@ -40,7 +40,7 @@
 "preferences.mode.polished" = "Light cleanup";
 "preferences.mode.verbatim" = "Verbatim";
 "preferences.language" = "Writing-language preference";
-"preferences.language.detail" = "Default: Traditional Chinese, preserving mixed languages. ASR still detects languages automatically. Chinese options convert character forms locally; other options guide cleanup spelling and punctuation, without translation.";
+"preferences.language.detail" = "Default: Traditional Chinese, preserving mixed languages. Chinese options convert character forms and remove extra spaces between Chinese characters locally, including in Verbatim mode. ASR still detects languages automatically; no translation is requested.";
 "preferences.language.placeholder" = "For example: preserve Cantonese wording and spoken English";
 "preferences.language.custom" = "Custom writing-language preference";
 "preferences.language.legacy" = "Older custom preferences are kept here for wording and punctuation. Choose a Chinese option above for character conversion.";
