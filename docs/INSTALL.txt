@@ -72,7 +72,7 @@ retain that extra condition. A 20-second ASR deadline remains, separate from the
 eight-second cleanup deadline. Quiet waiting is a heuristic, not a guaranteed
 receipt for every late segment. Review important dictated text.
 
-Audio uses bounded RAM buffers; OpenInsert 0.2 creates no recording files. There is
+Audio uses bounded RAM buffers; OpenInsert creates no recording files. There is
 no screen context, screenshot capture or transcript history. Cancelling cannot
 recall audio or text already sent to Google. API usage and data processing follow
 your Google account's terms. Never share a key in an issue or screenshot.
@@ -117,7 +117,8 @@ Activation is attempted once per identified target process launch during this
 OpenInsert run. A successful setter allows a three-second preparation window;
 it does not prove that an editable field is ready. No input content is read.
 If preparation is reported, keep the target app focused, wait a few seconds, and
-retry. The new initialization still requires validation in the affected editor.
+retry. A user confirmed successful dictation in the affected editor on 0.2.6;
+repeated restarts and other editors still need separate validation.
 
 The status confirms only that paste was requested, not that the editor accepted it.
 There is no automatic AX write or second paste retry. When a completed dictation
